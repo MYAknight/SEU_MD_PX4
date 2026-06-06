@@ -1,0 +1,73 @@
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <model name="perching_pole_16cm">
+    <static>true</static>
+    <link name="pole_link">
+      <pose>0 0 2.5 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>1.0</mass>
+        <inertia>
+          <ixx>0.001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.001</iyy>
+          <iyz>0</iyz>
+          <izz>0.001</izz>
+        </inertia>
+      </inertial>
+      <collision name="pole_collision">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.09</radius>
+            <length>5.0</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>100.0</mu>
+              <mu2>10.0</mu2>
+              <fdir1>0 0 1</fdir1>
+            </ode>
+            <torsional>
+              <coefficient>1.0</coefficient>
+              <use_patch_radius>false</use_patch_radius>
+              <surface_radius>0.09</surface_radius>
+              <ode>
+                <slip>0.0</slip>
+              </ode>
+            </torsional>
+          </friction>
+          <bounce>
+            <restitution_coefficient>0.0</restitution_coefficient>
+            <threshold>0.001</threshold>
+          </bounce>
+          <contact>
+            <ode>
+              <kp>50000.0</kp>
+              <kd>100.0</kd>
+              <max_vel>0.01</max_vel>
+              <min_depth>0.001</min_depth>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="pole_visual">
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.09</radius>
+            <length>5.0</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>0.8 0.2 0.2 1</ambient>
+          <diffuse>0.8 0.2 0.2 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>

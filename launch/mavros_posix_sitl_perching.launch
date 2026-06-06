@@ -12,7 +12,7 @@
     <!-- vehicle model and world -->
     <arg name="est" default="ekf2"/>
     <arg name="vehicle" default="huaqiccc"/>
-    <arg name="world" default="/home/a/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/perching_pole.world"/>
+    <arg name="world" default="$(find px4)/Tools/huaqiccc_simulation/worlds/perching_pole.world"/>
     <arg name="sdf" default="$(find mavlink_sitl_gazebo)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
 
     <!-- gazebo configs -->
