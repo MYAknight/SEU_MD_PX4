@@ -23,7 +23,7 @@
     <arg name="paused" default="false"/>
     <arg name="respawn_gazebo" default="false"/>
     <!-- PX4 configs -->
-    <arg name="interactive" default="true"/>
+    <arg name="interactive" default="false"/>
     <!-- PX4 SITL -->
     <arg unless="$(arg interactive)" name="px4_command_arg1" value="-d"/>
     <arg     if="$(arg interactive)" name="px4_command_arg1" value=""/>

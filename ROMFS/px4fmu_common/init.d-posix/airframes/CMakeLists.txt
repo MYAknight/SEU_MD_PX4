@@ -32,7 +32,6 @@
 ############################################################################
 
 px4_add_romfs_files(
-
 	1010_gazebo-classic_iris_opt_flow
 	1010_gazebo-classic_iris_opt_flow.post
 	1011_gazebo-classic_iris_irlock
@@ -43,40 +42,16 @@ px4_add_romfs_files(
 	1015_gazebo-classic_iris_obs_avoid.post
 	1017_gazebo-classic_iris_opt_flow_mockup
 	1019_gazebo-classic_iris_dual_gps
-	1021_gazebo-classic_uuv_hippocampus
-	1022_gazebo-classic_uuv_bluerov2_heavy
-	1030_gazebo-classic_plane
-	1031_gazebo-classic_plane_cam
-	1032_gazebo-classic_plane_catapult
-	1033_jsbsim_rascal
-	1034_flightgear_rascal-electric
-	1035_gazebo-classic_techpod
-	1036_jsbsim_malolo
-	1037_gazebo-classic_believer
-	1038_gazebo-classic_glider
-	1039_gazebo-classic_advanced_plane
-	1040_gazebo-classic_standard_vtol
-	1041_gazebo-classic_tailsitter
-	1042_gazebo-classic_tiltrotor
-	1043_gazebo-classic_standard_vtol_drop
-	1044_gazebo-classic_plane_lidar
-	1045_gazebo-classic_quadtailsitter
-	1060_gazebo-classic_rover
-	1061_gazebo-classic_r1_rover
-	1062_flightgear_tf-r1
-	1070_gazebo-classic_boat
-
-	2507_gazebo-classic_cloudship
 
 	3010_jsbsim_quadrotor_x
 	3011_jsbsim_hexarotor_x
 
 	4001_gz_x500
 	4002_gz_x500_depth
-	4003_gz_rc_cessna
-	4004_gz_standard_vtol
 	4005_gz_x500_vision
 	4006_gz_px4vision
+
+	4400_gazebo-classic_huaqiccc
 
 	6011_gazebo-classic_typhoon_h480
 	6011_gazebo-classic_typhoon_h480.post
@@ -89,9 +64,4 @@ px4_add_romfs_files(
 	10030_gazebo-classic_px4vision
 
 	10040_sihsim_quadx
-	10041_sihsim_airplane
-	10042_sihsim_xvert
-
-	17001_flightgear_tf-g1
-	17002_flightgear_tf-g2
 )

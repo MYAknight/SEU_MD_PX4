@@ -1,0 +1,118 @@
+#!/bin/sh
+#
+# @name huaqiccc Morphing Quadrotor
+# @class Copter
+#
+# @type Quadrotor with morphing arms
+#
+# @maintainer hjq
+#
+# @output Motor1 left-back (CW)
+# @output Motor2 left-front (CCW)
+# @output Motor3 right-back (CCW)
+# @output Motor4 right-front (CW)
+#
+# @board px4_fmu-v2 exclude
+# @board bitcraze_crazyflie exclude
+#
+
+. ${R}etc/init.d/rc.mc_defaults
+
+# =============================================================================
+# Motor Geometry: huaqiccc model at theta=0 (arms closed)
+# =============================================================================
+# Motor 0: left-back  at (-0.046568,  0.248013, 0.023678)
+# Motor 1: left-front at ( 0.412494,  0.228236, 0.023678)
+# Motor 2: right-back at (-0.051241, -0.246384, 0.023678)
+# Motor 3: right-front at( 0.408428, -0.233948, 0.023678)
+
+# Motor count
+param set-default CA_ROTOR_COUNT 4
+
+# Motor 0: left-back (CW)
+param set-default CA_ROTOR0_PX -0.046568
+param set-default CA_ROTOR0_PY  0.248013
+param set-default CA_ROTOR0_PZ  0.023678
+param set-default CA_ROTOR0_AX  0.0
+param set-default CA_ROTOR0_AY  0.0
+param set-default CA_ROTOR0_AZ -1.0
+param set-default CA_ROTOR0_KM  0.06
+
+# Motor 1: left-front (CCW)
+param set-default CA_ROTOR1_PX  0.412494
+param set-default CA_ROTOR1_PY  0.228236
+param set-default CA_ROTOR1_PZ  0.023678
+param set-default CA_ROTOR1_AX  0.0
+param set-default CA_ROTOR1_AY  0.0
+param set-default CA_ROTOR1_AZ -1.0
+param set-default CA_ROTOR1_KM  0.06
+
+# Motor 2: right-back (CCW)
+param set-default CA_ROTOR2_PX -0.051241
+param set-default CA_ROTOR2_PY -0.246384
+param set-default CA_ROTOR2_PZ  0.023678
+param set-default CA_ROTOR2_AX  0.0
+param set-default CA_ROTOR2_AY  0.0
+param set-default CA_ROTOR2_AZ -1.0
+param set-default CA_ROTOR2_KM  0.06
+
+# Motor 3: right-front (CW)
+param set-default CA_ROTOR3_PX  0.408428
+param set-default CA_ROTOR3_PY -0.233948
+param set-default CA_ROTOR3_PZ  0.023678
+param set-default CA_ROTOR3_AX  0.0
+param set-default CA_ROTOR3_AY  0.0
+param set-default CA_ROTOR3_AZ -1.0
+param set-default CA_ROTOR3_KM  0.06
+
+# =============================================================================
+# Control allocation settings
+# =============================================================================
+param set-default CA_METHOD 1
+
+# =============================================================================
+# Multicopter attitude control tuning
+# =============================================================================
+param set-default MC_ROLLRATE_P 0.18
+param set-default MC_ROLLRATE_I 0.20
+param set-default MC_ROLLRATE_D 0.003
+param set-default MC_ROLL_P 7.0
+
+param set-default MC_PITCHRATE_P 0.15
+param set-default MC_PITCHRATE_I 0.18
+param set-default MC_PITCHRATE_D 0.003
+param set-default MC_PITCH_P 6.0
+
+param set-default MC_YAWRATE_P 0.25
+param set-default MC_YAWRATE_I 0.30
+param set-default MC_YAWRATE_D 0.0
+param set-default MC_YAW_P 3.5
+
+# =============================================================================
+# Hover thrust estimation
+# =============================================================================
+param set-default MPC_THR_HOVER 0.55
+
+# =============================================================================
+# Position control (v1.14 param names)
+# NOTE: SITL tuned values (MPC_XY_P=3.8) are aggressive.
+#       Start conservative on real hardware and increase gradually.
+# =============================================================================
+param set-default MPC_XY_P 1.5
+param set-default MPC_XY_VEL_P_ACC 2.2
+param set-default MPC_XY_VEL_I_ACC 0.4
+param set-default MPC_XY_VEL_D_ACC 0.2
+param set-default MPC_XY_TRAJ_P 0.7
+
+param set-default MPC_Z_P 1.0
+param set-default MPC_Z_VEL_P_ACC 4.0
+
+# =============================================================================
+# Airframe type: Generic Quadcopter
+# =============================================================================
+set MAV_TYPE 2
+
+# =============================================================================
+# Start control allocator
+# =============================================================================
+control_allocator start

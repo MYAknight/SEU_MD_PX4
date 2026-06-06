@@ -3,3 +3,22 @@
 
 #param set-default MAV_SYS_ID $((px4_instance+1))
 #param set-default IMU_INTEG_RATE 250
+
+# Huaqiccc morphing drone position control defaults
+param set-default MPCA_MODE 0
+param set-default MPC_XY_P 1.5
+param set-default MPC_XY_VEL_P_ACC 2.2
+param set-default MPC_XY_VEL_I_ACC 0.4
+param set-default MPCA_MPC_ALPHA 20.0
+param set-default MPCA_MPC_R_DELTA 0.005
+param set-default MPCA_FF_EN 1
+param set-default MPCA_FF_BLEND 0.3
+param set-default MPCA_FF_MASS 1.5
+
+# External Force Observer (IMU-ICD) defaults
+param set-default EFO_ENABLE 1
+
+# Perching contact detection defaults (disabled by default)
+param set-default MPCA_PC_EN 0
+param set-default MPCA_PC_TRIG 0
+param set-default MPCA_PC_GATE 4.90

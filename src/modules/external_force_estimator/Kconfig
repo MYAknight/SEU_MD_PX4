@@ -1,0 +1,5 @@
+menuconfig MODULES_EXTERNAL_FORCE_ESTIMATOR
+	bool "external_force_estimator"
+	default n
+	---help---
+		Enable selection of external_force_estimator

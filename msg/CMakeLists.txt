@@ -58,6 +58,7 @@ set(msg_files
 	CellularStatus.msg
 	CollisionConstraints.msg
 	CollisionReport.msg
+	ContactState.msg
 	ControlAllocatorStatus.msg
 	Cpuload.msg
 	DebugArray.msg
@@ -69,6 +70,7 @@ set(msg_files
 	Ekf2Timestamps.msg
 	EscReport.msg
 	EscStatus.msg
+	ExternalForceEstimate.msg
 	EstimatorAidSource1d.msg
 	EstimatorAidSource2d.msg
 	EstimatorAidSource3d.msg
@@ -105,6 +107,7 @@ set(msg_files
 	HeaterStatus.msg
 	HomePosition.msg
 	HoverThrustEstimate.msg
+	HuaqicccMorphAngle.msg
 	InputRc.msg
 	InternalCombustionEngineStatus.msg
 	IridiumsbdStatus.msg

@@ -161,12 +161,35 @@ void MulticopterPositionControl::parameters_update(bool force)
 					    "Land tilt limit has been constrained by maximum tilt", _param_mpc_tiltmax_air.get());
 		}
 
-		_control.setPositionGains(Vector3f(_param_mpc_xy_p.get(), _param_mpc_xy_p.get(), _param_mpc_z_p.get()));
+		// Apply impedance control: reduce position stiffness during compliant contact
+		Vector3f pos_gain(_param_mpc_xy_p.get(), _param_mpc_xy_p.get(), _param_mpc_z_p.get());
+		if (_perching_phase == PerchingPhase::COMPLIANT && _param_mpca_pc_en.get() >= 3) {
+			pos_gain *= _param_mpca_pc_k_soft.get();
+		}
+		_control.setPositionGains(pos_gain);
 		_control.setVelocityGains(
 			Vector3f(_param_mpc_xy_vel_p_acc.get(), _param_mpc_xy_vel_p_acc.get(), _param_mpc_z_vel_p_acc.get()),
 			Vector3f(_param_mpc_xy_vel_i_acc.get(), _param_mpc_xy_vel_i_acc.get(), _param_mpc_z_vel_i_acc.get()),
 			Vector3f(_param_mpc_xy_vel_d_acc.get(), _param_mpc_xy_vel_d_acc.get(), _param_mpc_z_vel_d_acc.get()));
 		_control.setHorizontalThrustMargin(_param_mpc_thr_xy_marg.get());
+
+		// Mirror settings to advanced controller (with impedance control)
+		Vector3f adv_pos_gain(_param_mpc_xy_p.get(), _param_mpc_xy_p.get(), _param_mpc_z_p.get());
+		if (_perching_phase == PerchingPhase::COMPLIANT && _param_mpca_pc_en.get() >= 3) {
+			adv_pos_gain *= _param_mpca_pc_k_soft.get();
+		}
+		_advanced_control.setPositionGains(adv_pos_gain);
+		_advanced_control.setVelocityGains(
+			Vector3f(_param_mpc_xy_vel_p_acc.get(), _param_mpc_xy_vel_p_acc.get(), _param_mpc_z_vel_p_acc.get()),
+			Vector3f(_param_mpc_xy_vel_i_acc.get(), _param_mpc_xy_vel_i_acc.get(), _param_mpc_z_vel_i_acc.get()),
+			Vector3f(_param_mpc_xy_vel_d_acc.get(), _param_mpc_xy_vel_d_acc.get(), _param_mpc_z_vel_d_acc.get()));
+		_advanced_control.setHorizontalThrustMargin(_param_mpc_thr_xy_marg.get());
+		_advanced_control.setMode(_param_mpca_mode.get());
+		_advanced_control.setMpcAlpha(_param_mpca_mpc_alpha.get());
+		_advanced_control.setMpcRDelta(_param_mpca_mpc_r_delta.get());
+		_advanced_control.setUseFlatnessFeedforward(_param_mpca_ff_en.get() > 0);
+		_advanced_control.setFlatnessBlend(_param_mpca_ff_blend.get());
+		_advanced_control.setVehicleMass(_param_mpca_ff_mass.get());
 
 		// Check that the design parameters are inside the absolute maximum constraints
 		if (_param_mpc_xy_cruise.get() > _param_mpc_xy_vel_max.get()) {
@@ -250,6 +273,7 @@ void MulticopterPositionControl::parameters_update(bool force)
 
 		if (!_param_mpc_use_hte.get() || !_hover_thrust_initialized) {
 			_control.setHoverThrust(_param_mpc_thr_hover.get());
+			_advanced_control.setHoverThrust(_param_mpc_thr_hover.get());
 			_hover_thrust_initialized = true;
 		}
 
@@ -357,6 +381,16 @@ void MulticopterPositionControl::Run()
 		}
 
 		_vehicle_land_detected_sub.update(&_vehicle_land_detected);
+
+		// Read current attitude for perching pitch tracking
+		vehicle_attitude_s vehicle_attitude{};
+		_vehicle_attitude_sub.copy(&vehicle_attitude);
+
+		// Record arm time for perching hysteresis
+		if (_vehicle_control_mode.flag_armed && !_was_armed) {
+			_perching_armed_time = hrt_absolute_time();
+		}
+		_was_armed = _vehicle_control_mode.flag_armed;
 
 		if (_param_mpc_use_hte.get()) {
 			hover_thrust_estimate_s hte;
@@ -477,6 +511,7 @@ void MulticopterPositionControl::Run()
 
 			if (!flying) {
 				_control.setHoverThrust(_param_mpc_thr_hover.get());
+				_advanced_control.setHoverThrust(_param_mpc_thr_hover.get());
 			}
 
 			// make sure takeoff ramp is not amended by acceleration feed-forward
@@ -492,73 +527,545 @@ void MulticopterPositionControl::Run()
 
 				// prevent any integrator windup
 				_control.resetIntegral();
+				_advanced_control.resetIntegral();
 			}
 
-			// limit tilt during takeoff ramupup
-			const float tilt_limit_deg = (_takeoff.getTakeoffState() < TakeoffState::flight)
+			// === GMO Contact Detection → Perching Grasp Trigger ===
+			contact_state_s contact_state{};
+			bool imu_contact_stable = false;
+			if (_contact_state_sub.update(&contact_state)) {
+				int pc_en = _param_mpca_pc_en.get();
+				int pc_trig = _param_mpca_pc_trig.get();
+				// MONITOR level (>=1): log impact for diagnosis
+				if (pc_en >= 1 && contact_state.state == contact_state_s::STATE_POSSIBLE) {
+					PX4_INFO("PC_MON: IMU impact force=%.2f", (double)sqrtf(contact_state.contact_force[0]*contact_state.contact_force[0]+contact_state.contact_force[1]*contact_state.contact_force[1]+contact_state.contact_force[2]*contact_state.contact_force[2]));
+				}
+				// DETECT level (>=2) and trigger source includes IMU (trig != 1)
+				if (pc_en >= 2 && pc_trig != 1) {
+					const bool perching_allowed = flying
+						      && (_perching_armed_time > 0)
+						      && (hrt_absolute_time() - _perching_armed_time > 8_s)
+					      && (states.position(1) > _param_mpca_pc_gate.get());
+
+					if (perching_allowed
+					    && contact_state.state == contact_state_s::STATE_STABLE
+					    && contact_state.should_close
+					    && !_perching_active) {
+						_perching_active = true;
+							_perching_contact_x = states.position(1);
+						_perching_start_time = hrt_absolute_time();
+						mavlink_log_info(&_mavlink_log_pub, "Perching: contact stable, pushing forward to grasp");
+					}
+
+					if (_perching_active && contact_state.state == contact_state_s::STATE_NO_CONTACT) {
+						const float perching_elapsed = (hrt_absolute_time() - _perching_start_time) * 1e-6f;
+						if (perching_elapsed > 8.0f) {
+							_perching_active = false;
+							mavlink_log_info(&_mavlink_log_pub, "Perching: contact lost, releasing");
+						}
+					}
+				}
+				// Record IMU stable state for FSM when detection is enabled
+				if (pc_en >= 2) {
+					imu_contact_stable = (contact_state.state == contact_state_s::STATE_STABLE);
+				}
+			}
+
+			// === Position-based Stall Detection (drone blocked by obstacle) ===
+			// Detects when the drone cannot advance toward the setpoint,
+			// indicating contact with the pole. No prior knowledge of pole
+			// position is required — works purely on local motion.
+			bool stall_detected = false;
+			int pc_en = _param_mpca_pc_en.get();
+			int pc_trig = _param_mpca_pc_trig.get();
+			if (pc_en >= 2 && pc_trig != 2
+			    && _vehicle_control_mode.flag_control_offboard_enabled
+			    && flying) {
+				// Use Y-axis (position[1]) for stall detection because the test
+				// trajectory flies along X. For general use, this should be the
+				// axis with the largest setpoint movement.
+				float y_error = _setpoint.position[1] - states.position(1);
+				float y_vel = states.velocity(1);
+
+				// Require setpoint ahead and nearly stopped
+				bool approaching = y_error > _param_mpca_pc_stall_err.get();
+				bool nearly_stopped = fabsf(y_vel) < _param_mpca_pc_stall_vel.get();
+				// Position gate: optional absolute position threshold.
+				// Set MPCA_PC_GATE = 0.0 to disable and rely purely on local motion.
+				bool near_pole_surface = true;
+				float gate = _param_mpca_pc_gate.get();
+				if (gate > 0.01f) {
+					near_pole_surface = states.position(1) > gate;
+				}
+
+				// Additional check: position has barely moved in the last stall_t seconds
+				if (approaching && nearly_stopped && near_pole_surface) {
+					if (_stall_start_time == 0) {
+						_stall_start_time = hrt_absolute_time();
+						_stall_start_y = states.position(1);
+						if (_perching_phase == PerchingPhase::NONE) {
+							mavlink_log_info(&_mavlink_log_pub, "STALL_START");
+						}
+					} else {
+						float stall_elapsed = (hrt_absolute_time() - _stall_start_time) * 1e-6f;
+						float dy = states.position(1) - _stall_start_y;
+						// Must be blocked for stall_t and moved < stall_d
+						if (stall_elapsed > _param_mpca_pc_stall_t.get() && fabsf(dy) < _param_mpca_pc_stall_d.get()) {
+							stall_detected = true;
+							if (_perching_phase == PerchingPhase::NONE) {
+								mavlink_log_info(&_mavlink_log_pub, "STALL_DETECTED");
+							}
+						}
+					}
+				} else {
+					if (_stall_start_time != 0) {
+						if (_perching_phase == PerchingPhase::NONE) {
+							mavlink_log_info(&_mavlink_log_pub, "STALL_RESET");
+						}
+					}
+					_stall_start_time = 0;
+				}
+			}
+
+			// === Perching Phase State Machine ===
+			// Auto-reset if perching disabled mid-flight
+			if (pc_en < 2 && _perching_phase != PerchingPhase::NONE) {
+				_perching_phase = PerchingPhase::NONE;
+				_stall_start_time = 0;
+				_grasp_secure = false;
+				_perching_active = false;
+				_imu_stable_ever = false;
+			}
+			if (pc_en >= 2 && _perching_phase == PerchingPhase::NONE && (stall_detected || (_perching_active && imu_contact_stable))) {
+				_perching_phase = PerchingPhase::CONTACT;
+				_perching_active = true;  // ensure existing perching logic also triggers
+				_perching_contact_x = states.position(1);
+				_perching_start_z = states.position(2);
+				_perching_start_time = hrt_absolute_time();
+				_grasp_secure = false;
+				_imu_stable_ever = false;
+				_grasp_check_x = states.position(1);
+				_grasp_check_z = states.position(2);
+				_grasp_check_time = hrt_absolute_time();
+				mavlink_log_info(&_mavlink_log_pub, "Perching: contact detected, entering compliance");
+			}
+
+			if (_perching_phase == PerchingPhase::CONTACT) {
+				float contact_elapsed = (hrt_absolute_time() - _perching_start_time) * 1e-6f;
+				if (contact_elapsed > 1.0f) {
+					_perching_phase = PerchingPhase::COMPLIANT;
+					_compliant_sp_x = states.position(1) + _param_mpca_pc_preload.get();
+					_compliant_integral_reset = false;
+					_compliant_thrust_sum = 0.0f;
+					_compliant_thrust_count = 0;
+					_compliant_max_pitch = 0.0f;
+					_compliant_motor_sum = 0.0f;
+					_compliant_motor_count = 0;
+					mavlink_log_info(&_mavlink_log_pub, "Perching: entering soft contact, impedance k_soft=%.2f",
+						 (double)_param_mpca_pc_k_soft.get());
+				}
+			}
+
+			if (_perching_phase == PerchingPhase::COMPLIANT) {
+				float compliant_elapsed = (hrt_absolute_time() - _perching_start_time) * 1e-6f;
+
+				// Reset integral once when entering COMPLIANT to eliminate windup
+				if (!_compliant_integral_reset) {
+					_control.resetIntegral();
+					_advanced_control.resetIntegral();
+					_compliant_integral_reset = true;
+					mavlink_log_info(&_mavlink_log_pub, "Perching: integral reset for soft contact");
+				}
+
+				// Track max pitch during COMPLIANT (from vehicle attitude quaternion)
+				if (vehicle_attitude.timestamp > 0) {
+					matrix::Quatf q_att(vehicle_attitude.q);
+					matrix::Eulerf euler(q_att);
+					_compliant_max_pitch = math::max(_compliant_max_pitch, fabsf(euler.theta()));
+				}
+
+				// Grasp secure detection: require BOTH arms contracted AND position stable.
+				// This ensures thrust is not reduced before the gripper has clamped the pole.
+				if (!_grasp_secure && compliant_elapsed > 2.0f) {
+					// Check every 1 second
+					if (hrt_absolute_time() - _grasp_check_time > 1_s) {
+						// Read latest IMU contact state
+						contact_state_s cs{};
+						bool imu_stable_now = false;
+						if (_contact_state_sub.copy(&cs)) {
+							imu_stable_now = (cs.state == contact_state_s::STATE_STABLE);
+						}
+						if (imu_stable_now) {
+							_imu_stable_ever = true;
+						}
+
+						// Check arm angle if available
+						huaqiccc_morph_angle_s morph_msg{};
+						bool arms_contracted = false;
+						bool have_arm_data = _huaqiccc_morph_angle_sub.copy(&morph_msg);
+						if (have_arm_data) {
+							// GRASP_ANGLE is typically -0.15 rad (from -0.45 expanded)
+							// Arms are considered contracted if angle > -0.20 rad
+							arms_contracted = (morph_msg.arm_angle > -0.30f);
+						}
+
+						float dx = states.position(1) - _grasp_check_x;
+						float dz = states.position(2) - _grasp_check_z;
+						bool pos_stable = (fabsf(dx) < 0.03f && fabsf(dz) < 0.05f);
+
+						// Grasp secure when position is stable AND
+						// either arms are contracted OR we have been compliant for >10s.
+						// Time fallback always works regardless of arm data availability.
+						bool grasp_ok = pos_stable && (arms_contracted || compliant_elapsed > 6.0f);
+
+						if (grasp_ok) {
+							_grasp_secure = true;
+							mavlink_log_info(&_mavlink_log_pub, "Perching: grasp secure confirmed (arms=%d have_data=%d pos=%d elapsed=%.1f)",
+							         (int)arms_contracted, (int)have_arm_data, (int)pos_stable, (double)compliant_elapsed);
+						} else {
+							_grasp_check_x = states.position(1);
+							_grasp_check_z = states.position(2);
+							_grasp_check_time = hrt_absolute_time();
+							float dbg_angle = have_arm_data ? morph_msg.arm_angle : 99.0f;
+							mavlink_log_info(&_mavlink_log_pub, "Perching: grasp check failed, arms=%d have_data=%d pos=%d angle=%.3f dx=%.3f dz=%.3f",
+							         (int)arms_contracted, (int)have_arm_data, (int)pos_stable,
+							         (double)dbg_angle, (double)dx, (double)dz);
+						}
+					}
+				}
+
+				// Minimum 6s in compliant before ramp-down (simulation relaxed)
+				if (compliant_elapsed > 6.0f && _grasp_secure) {
+					_perching_phase = PerchingPhase::RAMP_DOWN;
+					_ramp_start_time = hrt_absolute_time();
+					// Output COMPLIANT phase statistics
+					if (_compliant_thrust_count > 0) {
+						float avg_thrust = _compliant_thrust_sum / _compliant_thrust_count;
+						float avg_motor = 0.0f;
+						if (_compliant_motor_count > 0) {
+							avg_motor = _compliant_motor_sum / _compliant_motor_count;
+						}
+						mavlink_log_info(&_mavlink_log_pub, "Perching: COMPLIANT stats avg_thrust=%.3f avg_motor=%.3f max_pitch=%.1fdeg samples=%d",
+							 (double)avg_thrust, (double)avg_motor, (double)math::degrees(_compliant_max_pitch),
+							 _compliant_thrust_count);
+					}
+					mavlink_log_info(&_mavlink_log_pub, "Perching: thrust ramp-down started");
+				}
+				// Safety timeout: abort if grasp never secures
+				else if (compliant_elapsed > 20.0f) {
+					_perching_phase = PerchingPhase::NONE;
+					_stall_start_time = 0;
+					_grasp_secure = false;
+					// Print COMPLIANT stats on timeout for A/B validation
+					if (_compliant_thrust_count > 0) {
+						float avg_thrust = _compliant_thrust_sum / _compliant_thrust_count;
+						float avg_motor = 0.0f;
+						if (_compliant_motor_count > 0) {
+							avg_motor = _compliant_motor_sum / _compliant_motor_count;
+						}
+						mavlink_log_info(&_mavlink_log_pub, "Perching: COMPLIANT stats avg_thrust=%.3f avg_motor=%.3f max_pitch=%.1fdeg samples=%d",
+							 (double)avg_thrust, (double)avg_motor, (double)math::degrees(_compliant_max_pitch),
+							 _compliant_thrust_count);
+					}
+					mavlink_log_info(&_mavlink_log_pub, "Perching: grasp timeout, aborting");
+				}
+			}
+
+			if (_perching_phase == PerchingPhase::RAMP_DOWN) {
+				float ramp_elapsed = (hrt_absolute_time() - _ramp_start_time) * 1e-6f;
+				if (ramp_elapsed > _param_mpca_pc_ramp_t.get()) {
+					_perching_phase = PerchingPhase::PERCHED;
+					mavlink_log_info(&_mavlink_log_pub, "Perching: zero thrust, arms holding");
+				}
+			}
+
+			// Safety: release if contact lost or height anomaly
+			if (_perching_phase != PerchingPhase::NONE) {
+				bool contact_lost = false;
+				if (_perching_phase == PerchingPhase::CONTACT || _perching_phase == PerchingPhase::COMPLIANT) {
+					// Early phase: only height drop can abort.
+					// Do NOT abort based on IMU/stall because setpoint is locked
+					// and stall detection naturally becomes false.
+					contact_lost = false;
+				} else {
+					// RAMP_DOWN / PERCHED: only height drop can abort
+					contact_lost = false;
+				}
+				bool height_drop = (states.position(2) < (_perching_start_z - 0.3f));
+				if (contact_lost || height_drop) {
+					_perching_phase = PerchingPhase::NONE;
+					_stall_start_time = 0;
+					_grasp_secure = false;
+					_imu_stable_ever = false;
+					mavlink_log_info(&_mavlink_log_pub, "Perching: abort, safety triggered");
+				}
+			}
+
+				// limit tilt during takeoff ramupup
+				const float tilt_limit_deg = (_takeoff.getTakeoffState() < TakeoffState::flight)
 						     ? _param_mpc_tiltmax_lnd.get() : _param_mpc_tiltmax_air.get();
-			_control.setTiltLimit(_tilt_limit_slew_rate.update(math::radians(tilt_limit_deg), dt));
 
-			const float speed_up = _takeoff.updateRamp(dt,
-					       PX4_ISFINITE(_vehicle_constraints.speed_up) ? _vehicle_constraints.speed_up : _param_mpc_z_vel_max_up.get());
-			const float speed_down = PX4_ISFINITE(_vehicle_constraints.speed_down) ? _vehicle_constraints.speed_down :
-						 _param_mpc_z_vel_max_dn.get();
+				// Choose active controller
+				const bool use_advanced = (_param_mpca_mode.get() > 0);
 
-			// Allow ramping from zero thrust on takeoff
-			const float minimum_thrust = flying ? _param_mpc_thr_min.get() : 0.f;
-			_control.setThrustLimits(minimum_thrust, _param_mpc_thr_max.get());
+				// Read morph angle for advanced controller
+				if (use_advanced) {
+					huaqiccc_morph_angle_s morph_msg{};
+					if (_huaqiccc_morph_angle_sub.copy(&morph_msg)) {
+						_advanced_control.setArmAngle(morph_msg.arm_angle);
+					}
+				}
 
-			float max_speed_xy = _param_mpc_xy_vel_max.get();
+				// Perching active: override setpoint to push forward past the pole
+				// Only do this during offboard control so landing mode is not affected
+				if (_param_mpca_pc_en.get() >= 3
+				    && (_perching_active || _perching_phase != PerchingPhase::NONE)
+				    && _vehicle_control_mode.flag_control_offboard_enabled) {
+					float orig_sp = _setpoint.position[1];
+					if (_perching_phase == PerchingPhase::CONTACT) {
+						// CONTACT: push 5cm past contact point
+						_setpoint.position[1] = _perching_contact_x + 0.05f;
+					} else if (_perching_phase == PerchingPhase::COMPLIANT) {
+						// COMPLIANT: spring preload — current position + small offset
+						_setpoint.position[1] = states.position(1) + _param_mpca_pc_preload.get();
+					} else if (_perching_phase == PerchingPhase::RAMP_DOWN
+						   || _perching_phase == PerchingPhase::PERCHED) {
+						// Maintain position at contact point, no forward push
+						_setpoint.position[1] = _perching_contact_x;
+					} else {
+						// Fallback to original 0.25m push
+						_setpoint.position[1] = _perching_contact_x + 0.25f;
+					}
+					PX4_INFO("PERCHING: phase=%d, orig_sp=%.2f, new_sp=%.2f, contact_pos=%.2f",
+					         (int)_perching_phase, (double)orig_sp, (double)_setpoint.position[1], (double)_perching_contact_x);
+					// Keep original velocity/accel to avoid NAN mismatch with type_mask
+					// The position override is sufficient to create the stall/compliance behavior
+				}
 
-			if (PX4_ISFINITE(vehicle_local_position.vxy_max)) {
-				max_speed_xy = math::min(max_speed_xy, vehicle_local_position.vxy_max);
-			}
+				if (use_advanced) {
+					_advanced_control.setTiltLimit(_tilt_limit_slew_rate.update(math::radians(tilt_limit_deg), dt));
 
-			_control.setVelocityLimits(
-				max_speed_xy,
-				math::min(speed_up, _param_mpc_z_vel_max_up.get()), // takeoff ramp starts with negative velocity limit
-				math::max(speed_down, 0.f));
+					const float speed_up = _takeoff.updateRamp(dt,
+						       PX4_ISFINITE(_vehicle_constraints.speed_up) ? _vehicle_constraints.speed_up : _param_mpc_z_vel_max_up.get());
+					const float speed_down = PX4_ISFINITE(_vehicle_constraints.speed_down) ? _vehicle_constraints.speed_down :
+							 _param_mpc_z_vel_max_dn.get();
 
-			_control.setInputSetpoint(_setpoint);
+					const float minimum_thrust = flying ? _param_mpc_thr_min.get() : 0.f;
+					_advanced_control.setThrustLimits(minimum_thrust, _param_mpc_thr_max.get());
 
-			// update states
-			if (!PX4_ISFINITE(_setpoint.position[2])
-			    && PX4_ISFINITE(_setpoint.velocity[2]) && (fabsf(_setpoint.velocity[2]) > FLT_EPSILON)
-			    && PX4_ISFINITE(vehicle_local_position.z_deriv) && vehicle_local_position.z_valid && vehicle_local_position.v_z_valid) {
-				// A change in velocity is demanded and the altitude is not controlled.
-				// Set velocity to the derivative of position
-				// because it has less bias but blend it in across the landing speed range
-				//  <  MPC_LAND_SPEED: ramp up using altitude derivative without a step
-				//  >= MPC_LAND_SPEED: use altitude derivative
-				float weighting = fminf(fabsf(_setpoint.velocity[2]) / _param_mpc_land_speed.get(), 1.f);
-				states.velocity(2) = vehicle_local_position.z_deriv * weighting + vehicle_local_position.vz * (1.f - weighting);
-			}
+					float max_speed_xy = _param_mpc_xy_vel_max.get();
 
-			_control.setState(states);
+					if (PX4_ISFINITE(vehicle_local_position.vxy_max)) {
+						max_speed_xy = math::min(max_speed_xy, vehicle_local_position.vxy_max);
+					}
 
-			// Run position control
-			if (!_control.update(dt)) {
-				// Failsafe
-				_vehicle_constraints = {0, NAN, NAN, false, {}}; // reset constraints
+					_advanced_control.setVelocityLimits(
+						max_speed_xy,
+						math::min(speed_up, _param_mpc_z_vel_max_up.get()),
+						math::max(speed_down, 0.f));
 
-				_control.setInputSetpoint(generateFailsafeSetpoint(vehicle_local_position.timestamp_sample, states, true));
-				_control.setVelocityLimits(_param_mpc_xy_vel_max.get(), _param_mpc_z_vel_max_up.get(), _param_mpc_z_vel_max_dn.get());
-				_control.update(dt);
-			}
+					_advanced_control.setInputSetpoint(_setpoint);
 
-			// Publish internal position control setpoints
-			// on top of the input/feed-forward setpoints these containt the PID corrections
-			// This message is used by other modules (such as Landdetector) to determine vehicle intention.
-			vehicle_local_position_setpoint_s local_pos_sp{};
-			_control.getLocalPositionSetpoint(local_pos_sp);
-			local_pos_sp.timestamp = hrt_absolute_time();
-			_local_pos_sp_pub.publish(local_pos_sp);
+					if (!PX4_ISFINITE(_setpoint.position[2])
+					    && PX4_ISFINITE(_setpoint.velocity[2]) && (fabsf(_setpoint.velocity[2]) > FLT_EPSILON)
+					    && PX4_ISFINITE(vehicle_local_position.z_deriv) && vehicle_local_position.z_valid && vehicle_local_position.v_z_valid) {
+						float weighting = fminf(fabsf(_setpoint.velocity[2]) / _param_mpc_land_speed.get(), 1.f);
+						states.velocity(2) = vehicle_local_position.z_deriv * weighting + vehicle_local_position.vz * (1.f - weighting);
+					}
 
-			// Publish attitude setpoint output
-			vehicle_attitude_setpoint_s attitude_setpoint{};
-			_control.getAttitudeSetpoint(attitude_setpoint);
-			attitude_setpoint.timestamp = hrt_absolute_time();
-			_vehicle_attitude_setpoint_pub.publish(attitude_setpoint);
+					AdvancedControlStates adv_states;
+					adv_states.position = states.position;
+					adv_states.velocity = states.velocity;
+					adv_states.acceleration = states.acceleration;
+					adv_states.yaw = states.yaw;
+					_advanced_control.setState(adv_states);
+
+					// Populate flatness feedforward inputs from trajectory setpoint
+					FlatnessFeedforward::FlatOutput flat_out{};
+					flat_out.pos = Vector3f(_setpoint.position);
+					flat_out.vel = Vector3f(_setpoint.velocity);
+					flat_out.acc = Vector3f(_setpoint.acceleration);
+					flat_out.jerk = Vector3f(_setpoint.jerk);
+					flat_out.snap.zero();
+					flat_out.yaw = _setpoint.yaw;
+					flat_out.yaw_dot = _setpoint.yawspeed;
+					flat_out.yaw_ddot = 0.0f;
+					// Arm angle: use latest morph angle
+					huaqiccc_morph_angle_s morph_msg{};
+					if (_huaqiccc_morph_angle_sub.copy(&morph_msg)) {
+						flat_out.arm_angle = morph_msg.arm_angle;
+					}
+					flat_out.arm_angle_dot = 0.0f;
+					flat_out.arm_angle_ddot = 0.0f;
+					_advanced_control.setFlatnessInput(flat_out);
+
+					if (!_advanced_control.update(dt)) {
+						_vehicle_constraints = {0, NAN, NAN, false, {}};
+						trajectory_setpoint_s fs_sp = generateFailsafeSetpoint(vehicle_local_position.timestamp_sample, states, true);
+						_advanced_control.setInputSetpoint(fs_sp);
+						_advanced_control.setVelocityLimits(_param_mpc_xy_vel_max.get(), _param_mpc_z_vel_max_up.get(), _param_mpc_z_vel_max_dn.get());
+						_advanced_control.update(dt);
+					}
+
+					vehicle_local_position_setpoint_s local_pos_sp{};
+					_advanced_control.getLocalPositionSetpoint(local_pos_sp);
+					local_pos_sp.timestamp = hrt_absolute_time();
+					_local_pos_sp_pub.publish(local_pos_sp);
+
+					vehicle_attitude_setpoint_s attitude_setpoint{};
+					_advanced_control.getAttitudeSetpoint(attitude_setpoint);
+					// Perching thrust management — Spring Model
+					float hover = _param_mpc_thr_hover.get();
+					if (_param_mpca_pc_en.get() >= 3) {
+						if (_perching_phase == PerchingPhase::COMPLIANT) {
+						// 1. Track thrust stats
+						float thrust_mag = fabsf(attitude_setpoint.thrust_body[2]);
+						_compliant_thrust_sum += thrust_mag;
+						_compliant_thrust_count++;
+						// 2. Spring model: recompute thrust so vertical component = hover thrust
+						if (_param_mpca_pc_spring_en.get() > 0) {
+							matrix::Quatf q_sp(attitude_setpoint.q_d);
+							matrix::Dcmf R_sp(q_sp);
+							float cos_tilt = R_sp(2, 2);  // body_z dot world_z
+							if (cos_tilt > 0.01f) {
+								float target_thrust = hover / cos_tilt;
+								// Cap total thrust at 1.3x hover to avoid excessive thrust
+								float max_thrust = hover * 1.3f;
+								target_thrust = math::min(target_thrust, max_thrust);
+								attitude_setpoint.thrust_body[2] = -target_thrust;
+								PX4_INFO("COMPLIANT: spring mode, tilt=%.1fdeg cos=%.3f target_thrust=%.3f",
+									 (double)math::degrees(acosf(cos_tilt)), (double)cos_tilt, (double)target_thrust);
+							}
+						} else {
+							// Hard-push mode: disable spring correction, use raw controller output
+							// Integrator windup will produce sustained high thrust
+							PX4_INFO("COMPLIANT: hard-push mode, raw thrust=%.3f", (double)attitude_setpoint.thrust_body[2]);
+						}
+						// 3. Record motor outputs for closed-loop validation
+						actuator_outputs_s act_out{};
+						bool have_act = _actuator_outputs_sub.copy(&act_out);
+						if (!have_act) { have_act = _actuator_outputs_hw_sub.copy(&act_out); }
+						if (have_act && act_out.noutputs >= 4) {
+							float avg_motor = (act_out.output[0] + act_out.output[1]
+								   + act_out.output[2] + act_out.output[3]) / 4.0f;
+							_compliant_motor_sum += avg_motor;
+							_compliant_motor_count++;
+						}
+					} else if (_perching_phase == PerchingPhase::RAMP_DOWN) {
+						float elapsed = (hrt_absolute_time() - _ramp_start_time) * 1e-6f;
+						float tau = _param_mpca_pc_ramp_t.get();
+						float alpha = math::constrain(elapsed / tau, 0.0f, 1.0f);
+						// Exponential decay from hover thrust to zero
+						float blend = expf(-3.0f * alpha);
+						attitude_setpoint.thrust_body[2] = -hover * blend;
+					} else if (_perching_phase == PerchingPhase::PERCHED) {
+						// Mechanical arms provide holding force — no thrust needed
+						attitude_setpoint.thrust_body[2] = 0.0f;
+					}
+					}
+					attitude_setpoint.timestamp = hrt_absolute_time();
+					_vehicle_attitude_setpoint_pub.publish(attitude_setpoint);
+
+				} else {
+					// Original PID path
+					_control.setTiltLimit(_tilt_limit_slew_rate.update(math::radians(tilt_limit_deg), dt));
+
+					const float speed_up = _takeoff.updateRamp(dt,
+						       PX4_ISFINITE(_vehicle_constraints.speed_up) ? _vehicle_constraints.speed_up : _param_mpc_z_vel_max_up.get());
+					const float speed_down = PX4_ISFINITE(_vehicle_constraints.speed_down) ? _vehicle_constraints.speed_down :
+							 _param_mpc_z_vel_max_dn.get();
+
+					const float minimum_thrust = flying ? _param_mpc_thr_min.get() : 0.f;
+					_control.setThrustLimits(minimum_thrust, _param_mpc_thr_max.get());
+
+					float max_speed_xy = _param_mpc_xy_vel_max.get();
+
+					if (PX4_ISFINITE(vehicle_local_position.vxy_max)) {
+						max_speed_xy = math::min(max_speed_xy, vehicle_local_position.vxy_max);
+					}
+
+					_control.setVelocityLimits(
+						max_speed_xy,
+						math::min(speed_up, _param_mpc_z_vel_max_up.get()),
+						math::max(speed_down, 0.f));
+
+					_control.setInputSetpoint(_setpoint);
+
+					if (!PX4_ISFINITE(_setpoint.position[2])
+					    && PX4_ISFINITE(_setpoint.velocity[2]) && (fabsf(_setpoint.velocity[2]) > FLT_EPSILON)
+					    && PX4_ISFINITE(vehicle_local_position.z_deriv) && vehicle_local_position.z_valid && vehicle_local_position.v_z_valid) {
+						float weighting = fminf(fabsf(_setpoint.velocity[2]) / _param_mpc_land_speed.get(), 1.f);
+						states.velocity(2) = vehicle_local_position.z_deriv * weighting + vehicle_local_position.vz * (1.f - weighting);
+					}
+
+					_control.setState(states);
+
+					if (!_control.update(dt)) {
+						_vehicle_constraints = {0, NAN, NAN, false, {}};
+						_control.setInputSetpoint(generateFailsafeSetpoint(vehicle_local_position.timestamp_sample, states, true));
+						_control.setVelocityLimits(_param_mpc_xy_vel_max.get(), _param_mpc_z_vel_max_up.get(), _param_mpc_z_vel_max_dn.get());
+						_control.update(dt);
+					}
+
+					vehicle_local_position_setpoint_s local_pos_sp{};
+					_control.getLocalPositionSetpoint(local_pos_sp);
+					local_pos_sp.timestamp = hrt_absolute_time();
+					_local_pos_sp_pub.publish(local_pos_sp);
+
+					vehicle_attitude_setpoint_s attitude_setpoint{};
+					_control.getAttitudeSetpoint(attitude_setpoint);
+					// Perching thrust management — Spring Model
+					float hover = _param_mpc_thr_hover.get();
+					if (_param_mpca_pc_en.get() >= 3) {
+						if (_perching_phase == PerchingPhase::COMPLIANT) {
+						// 1. Track thrust stats
+						float thrust_mag = fabsf(attitude_setpoint.thrust_body[2]);
+						_compliant_thrust_sum += thrust_mag;
+						_compliant_thrust_count++;
+						// 2. Spring model: recompute thrust so vertical component = hover thrust
+						if (_param_mpca_pc_spring_en.get() > 0) {
+							matrix::Quatf q_sp(attitude_setpoint.q_d);
+							matrix::Dcmf R_sp(q_sp);
+							float cos_tilt = R_sp(2, 2);  // body_z dot world_z
+							if (cos_tilt > 0.01f) {
+								float target_thrust = hover / cos_tilt;
+								// Cap total thrust at 1.3x hover to avoid excessive thrust
+								float max_thrust = hover * 1.3f;
+								target_thrust = math::min(target_thrust, max_thrust);
+								attitude_setpoint.thrust_body[2] = -target_thrust;
+								PX4_INFO("COMPLIANT: spring mode, tilt=%.1fdeg cos=%.3f target_thrust=%.3f",
+									 (double)math::degrees(acosf(cos_tilt)), (double)cos_tilt, (double)target_thrust);
+							}
+						} else {
+							// Hard-push mode: disable spring correction, use raw controller output
+							// Integrator windup will produce sustained high thrust
+							PX4_INFO("COMPLIANT: hard-push mode, raw thrust=%.3f", (double)attitude_setpoint.thrust_body[2]);
+						}
+						// 3. Record motor outputs for closed-loop validation
+						actuator_outputs_s act_out{};
+						bool have_act = _actuator_outputs_sub.copy(&act_out);
+						if (!have_act) { have_act = _actuator_outputs_hw_sub.copy(&act_out); }
+						if (have_act && act_out.noutputs >= 4) {
+							float avg_motor = (act_out.output[0] + act_out.output[1]
+								   + act_out.output[2] + act_out.output[3]) / 4.0f;
+							_compliant_motor_sum += avg_motor;
+							_compliant_motor_count++;
+						}
+					} else if (_perching_phase == PerchingPhase::RAMP_DOWN) {
+						float elapsed = (hrt_absolute_time() - _ramp_start_time) * 1e-6f;
+						float tau = _param_mpca_pc_ramp_t.get();
+						float alpha = math::constrain(elapsed / tau, 0.0f, 1.0f);
+						// Exponential decay from hover thrust to zero
+						float blend = expf(-3.0f * alpha);
+						attitude_setpoint.thrust_body[2] = -hover * blend;
+					} else if (_perching_phase == PerchingPhase::PERCHED) {
+						// Mechanical arms provide holding force — no thrust needed
+						attitude_setpoint.thrust_body[2] = 0.0f;
+					}
+					}
+					attitude_setpoint.timestamp = hrt_absolute_time();
+					_vehicle_attitude_setpoint_pub.publish(attitude_setpoint);
+				}
 
 		} else {
 			// an update is necessary here because otherwise the takeoff state doesn't get skipped with non-altitude-controlled modes

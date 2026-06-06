@@ -59,6 +59,7 @@
 
 #include "mavlink_command_sender.h"
 #include "mavlink_main.h"
+// hjq: include custom uORB topic
 #include "mavlink_receiver.h"
 
 #include <lib/drivers/device/Device.hpp> // For DeviceId union
@@ -67,6 +68,9 @@
 #define MAVLINK_RECEIVER_NET_ADDED_STACK 1360
 #else
 #define MAVLINK_RECEIVER_NET_ADDED_STACK 0
+
+// hjq: Custom MAVLink command for dynamic rotor configuration
+#define MAV_CMD_HUAQICCC_SET_ARM_ANGLE 31440
 #endif
 
 MavlinkReceiver::~MavlinkReceiver()
@@ -425,7 +429,44 @@ MavlinkReceiver::handle_message_command_long(mavlink_message_t *msg)
 	vcmd.source_component = msg->compid;
 	vcmd.confirmation = cmd_mavlink.confirmation;
 	vcmd.from_external = true;
+		// huaqiccc: Handle atomic morphing configuration via single-angle command
+	if (cmd_mavlink.command == MAV_CMD_HUAQICCC_SET_ARM_ANGLE) {
+		float arm_angle = cmd_mavlink.param1;
 
+		// Validate angle range (0 = closed, negative = expanded)
+		if (arm_angle > 0.05f || arm_angle < -0.55f) {
+			PX4_WARN("huaqiccc: invalid arm_angle %.3f", (double)arm_angle);
+			acknowledge(msg->sysid, msg->compid, cmd_mavlink.command,
+				    vehicle_command_ack_s::VEHICLE_CMD_RESULT_DENIED);
+			return;
+		}
+
+		// huaqiccc: In SITL, publish directly so Gazebo plugin and ControlAllocator can pick up.
+		// In real hardware, huaqiccc_morph_control module reads AS5600 and publishes actual angle.
+		#ifdef CONFIG_ARCH_SIM
+		huaqiccc_morph_angle_s morph_msg{};
+		morph_msg.timestamp = hrt_absolute_time();
+		morph_msg.arm_angle = arm_angle;
+
+		static orb_advert_t _huaqiccc_morph_pub = nullptr;
+		if (_huaqiccc_morph_pub != nullptr) {
+			orb_publish(ORB_ID(huaqiccc_morph_angle), _huaqiccc_morph_pub, &morph_msg);
+		} else {
+			_huaqiccc_morph_pub = orb_advertise(ORB_ID(huaqiccc_morph_angle), &morph_msg);
+		}
+		#endif
+
+		acknowledge(msg->sysid, msg->compid, cmd_mavlink.command,
+			    vehicle_command_ack_s::VEHICLE_CMD_RESULT_ACCEPTED);
+
+		// In real hardware, also publish vehicle_command so huaqiccc_morph_control can receive it
+		#ifndef CONFIG_ARCH_SIM
+			orb_advert_t vcmd_pub = orb_advertise(ORB_ID(vehicle_command), &vcmd);
+			orb_publish(ORB_ID(vehicle_command), vcmd_pub, &vcmd);
+		#endif
+
+		return;
+	}
 	handle_message_command_both(msg, cmd_mavlink, vcmd);
 }
 

@@ -49,13 +49,10 @@
 #include "navigator_mode.h"
 #include "rtl.h"
 #include "takeoff.h"
-#include "vtol_takeoff.h"
-
 #include "navigation.h"
 
 #include "GeofenceBreachAvoidance/geofence_breach_avoidance.h"
 
-#include <lib/adsb/AdsbConflict.h>
 #include <lib/perf/perf_counter.h>
 #include <px4_platform_common/module.h>
 #include <px4_platform_common/module_params.h>
@@ -70,7 +67,6 @@
 #include <uORB/topics/position_controller_landing_status.h>
 #include <uORB/topics/position_controller_status.h>
 #include <uORB/topics/position_setpoint_triplet.h>
-#include <uORB/topics/transponder_report.h>
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_command_ack.h>
 #include <uORB/topics/vehicle_global_position.h>
@@ -86,7 +82,7 @@ using namespace time_literals;
 /**
  * Number of navigation modes that need on_active/on_inactive calls
  */
-#define NAVIGATOR_MODE_ARRAY_SIZE 8
+#define NAVIGATOR_MODE_ARRAY_SIZE 7
 
 class Navigator : public ModuleBase<Navigator>, public ModuleParams
 {
@@ -129,15 +125,6 @@ public:
 	 * @param vcmd Vehicle command to execute
 	 */
 	void publish_vehicle_cmd(vehicle_command_s *vcmd);
-
-	/**
-	 * Check nearby traffic for potential collisions
-	 */
-	void check_traffic();
-
-	void take_traffic_conflict_action();
-
-	void run_fake_traffic();
 
 	/**
 	 * Setters
@@ -322,7 +309,6 @@ private:
 	uORB::Subscription _home_pos_sub{ORB_ID(home_position)};		/**< home position subscription */
 	uORB::Subscription _land_detected_sub{ORB_ID(vehicle_land_detected)};	/**< vehicle land detected subscription */
 	uORB::Subscription _pos_ctrl_landing_status_sub{ORB_ID(position_controller_landing_status)};	/**< position controller landing status subscription */
-	uORB::Subscription _traffic_sub{ORB_ID(transponder_report)};		/**< traffic subscription */
 	uORB::Subscription _vehicle_command_sub{ORB_ID(vehicle_command)};	/**< vehicle commands (onboard and offboard) */
 
 	uORB::Publication<geofence_result_s>		_geofence_result_pub{ORB_ID(geofence_result)};
@@ -370,11 +356,9 @@ private:
 	Mission		_mission;			/**< class that handles the missions */
 	Loiter		_loiter;			/**< class that handles loiter */
 	Takeoff		_takeoff;			/**< class for handling takeoff commands */
-	VtolTakeoff	_vtol_takeoff;			/**< class for handling VEHICLE_CMD_NAV_VTOL_TAKEOFF command */
 	Land		_land;			/**< class for handling land commands */
 	PrecLand	_precland;			/**< class for handling precision land commands */
 	RTL 		_rtl;				/**< class that handles RTL */
-	AdsbConflict 	_adsb_conflict;			/**< class that handles ADSB conflict avoidance */
 
 	NavigatorMode *_navigation_mode{nullptr};	/**< abstract pointer to current navigation mode class */
 	NavigatorMode *_navigation_mode_array[NAVIGATOR_MODE_ARRAY_SIZE] {};	/**< array of navigation modes */
@@ -390,8 +374,6 @@ private:
 	float _mission_cruising_speed_mc{-1.0f};
 	float _mission_cruising_speed_fw{-1.0f};
 	float _mission_throttle{NAN};
-
-	traffic_buffer_s _traffic_buffer{};
 
 	bool _is_capturing_images{false}; // keep track if we need to stop capturing images
 

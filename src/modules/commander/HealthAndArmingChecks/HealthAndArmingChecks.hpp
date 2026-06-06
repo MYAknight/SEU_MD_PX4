@@ -41,7 +41,6 @@
 #include <uORB/topics/failsafe_flags.h>
 
 #include "checks/accelerometerCheck.hpp"
-#include "checks/airspeedCheck.hpp"
 #include "checks/baroCheck.hpp"
 #include "checks/cpuResourceCheck.hpp"
 #include "checks/distanceSensorChecks.hpp"
@@ -65,7 +64,6 @@
 #include "checks/flightTimeCheck.hpp"
 #include "checks/missionCheck.hpp"
 #include "checks/rcAndDataLinkCheck.hpp"
-#include "checks/vtolCheck.hpp"
 #include "checks/offboardCheck.hpp"
 
 class HealthAndArmingChecks : public ModuleParams
@@ -113,7 +111,6 @@ private:
 
 	// all checks
 	AccelerometerChecks _accelerometer_checks;
-	AirspeedChecks _airspeed_checks;
 	BaroChecks _baro_checks;
 	CpuResourceChecks _cpu_resource_checks;
 	DistanceSensorChecks _distance_sensor_checks;
@@ -137,12 +134,10 @@ private:
 	FlightTimeChecks _flight_time_checks;
 	MissionChecks _mission_checks;
 	RcAndDataLinkChecks _rc_and_data_link_checks;
-	VtolChecks _vtol_checks;
 	OffboardChecks _offboard_checks;
 
 	HealthAndArmingCheckBase *_checks[30] = {
 		&_accelerometer_checks,
-		&_airspeed_checks,
 		&_baro_checks,
 		&_cpu_resource_checks,
 		&_distance_sensor_checks,
@@ -167,7 +162,6 @@ private:
 		&_geofence_checks, // must be after _home_position_checks
 		&_flight_time_checks,
 		&_rc_and_data_link_checks,
-		&_vtol_checks,
 	};
 };
 

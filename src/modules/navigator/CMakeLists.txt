@@ -49,10 +49,8 @@ px4_add_module(
 		precland.cpp
 		mission_feasibility_checker.cpp
 		geofence.cpp
-		vtol_takeoff.cpp
 	DEPENDS
 		geo
-		adsb
 		geofence_breach_avoidance
 		motion_planning
 		mission_feasibility_checker

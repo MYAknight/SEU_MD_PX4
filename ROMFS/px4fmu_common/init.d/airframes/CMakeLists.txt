@@ -35,20 +35,7 @@ px4_add_romfs_files(
 	# [0-999] Reserved (historical)"
 
 	# [1000, 1999] Simulation setups"
-	1001_rc_quad_x.hil
-	1002_standard_vtol.hil
 	1100_rc_quad_x_sih.hil
-	1101_rc_plane_sih.hil
-	1102_tailsitter_duo_sih.hil
-
-	# [2000, 2999] Standard planes"
-	2100_standard_plane
-	2106_albatross
-
-	2507_cloudship
-
-	# [3000, 3999] Flying wing"
-	3000_generic_wing
 
 	# [4000, 4999] Quadrotor x"
 	4001_quad_x
@@ -66,6 +53,8 @@ px4_add_romfs_files(
 	4061_atl_mantis_edu
 	4071_ifo
 	4073_ifo-s
+	4400_huaqiccc
+	4401_huaqiccc_real
 	4500_clover4
 	4900_crazyflie
 	4901_crazyflie21
@@ -92,36 +81,9 @@ px4_add_romfs_files(
 	# [12000, 12999] Octo Cox
 	12001_octo_cox
 
-	# [13000, 13999] VTOL
-	13000_generic_vtol_standard
-	13100_generic_vtol_tiltrotor
-	13013_deltaquad
-	13014_vtol_babyshark
-	13030_generic_vtol_quad_tiltrotor
-	13200_generic_vtol_tailsitter
-
 	# [14000, 14999] MC with tilt
 	14001_generic_mc_with_tilt
 
-	16001_helicopter
-
-	# [17000, 17999] Autogyro
-	17002_TF-AutoG2
-	17003_TF-G2
-
-	# [18000, 18999] High-altitude balloons
-	18001_TF-B1
-
-	# [22000, 22999] Reserve for custom models
-
+	# [24000, 24999] Dodeca Cox
 	24001_dodeca_cox
-
-	50000_generic_ground_vehicle
-	50004_nxpcup_car_dfrobot_gpx
-	50003_aion_robotics_r1_rover
-
-	# [60000, 61000] (Unmanned) Underwater Robots
-	60000_uuv_generic
-	60001_uuv_hippocampus
-	60002_uuv_bluerov2_heavy
 )

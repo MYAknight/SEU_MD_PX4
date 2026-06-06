@@ -134,15 +134,4 @@ void FlightTaskManualPosition::_updateSetpoints()
 
 	_updateXYlock(); // check for position lock
 
-	_weathervane.update();
-
-	if (_weathervane.isActive()) {
-		_yaw_setpoint = NAN;
-
-		// only enable the weathervane to change the yawrate when position lock is active (and thus the pos. sp. aren't NAN)
-		if (Vector2f(_position_setpoint).isAllFinite()) {
-			// vehicle is steady
-			_yawspeed_setpoint += _weathervane.getWeathervaneYawrate();
-		}
-	}
 }

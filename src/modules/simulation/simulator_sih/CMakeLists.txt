@@ -49,9 +49,7 @@ px4_add_module(
 if(PX4_PLATFORM MATCHES "posix")
 	# create targets for sihsim
 	set(models
-		airplane
 		quadx
-		xvert
 	)
 
 	# find corresponding airframes

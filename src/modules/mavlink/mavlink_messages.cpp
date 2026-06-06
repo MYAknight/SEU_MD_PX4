@@ -122,7 +122,6 @@
 #include "streams/WIND_COV.hpp"
 
 #if !defined(CONSTRAINED_FLASH)
-# include "streams/ADSB_VEHICLE.hpp"
 # include "streams/AUTOPILOT_STATE_FOR_GIMBAL_DEVICE.hpp"
 # include "streams/DEBUG.hpp"
 # include "streams/DEBUG_FLOAT_ARRAY.hpp"
@@ -139,8 +138,6 @@
 # include "streams/SCALED_PRESSURE2.hpp"
 # include "streams/SCALED_PRESSURE3.hpp"
 # include "streams/SMART_BATTERY_INFO.hpp"
-# include "streams/UAVIONIX_ADSB_OUT_CFG.hpp"
-# include "streams/UAVIONIX_ADSB_OUT_DYNAMIC.hpp"
 # include "streams/UTM_GLOBAL_POSITION.hpp"
 #endif // !CONSTRAINED_FLASH
 
@@ -399,9 +396,6 @@ static const StreamListItem streams_list[] = {
 #if defined(ALTITUDE_HPP)
 	create_stream_list_item<MavlinkStreamAltitude>(),
 #endif // ALTITUDE_HPP
-#if defined(ADSB_VEHICLE_HPP)
-	create_stream_list_item<MavlinkStreamADSBVehicle>(),
-#endif // ADSB_VEHICLE_HPP
 #if defined(UTM_GLOBAL_POSITION_HPP)
 	create_stream_list_item<MavlinkStreamUTMGlobalPosition>(),
 #endif // UTM_GLOBAL_POSITION_HPP
@@ -477,12 +471,6 @@ static const StreamListItem streams_list[] = {
 #if defined(GPS_RTCM_DATA_HPP)
 	create_stream_list_item<MavlinkStreamGPSRTCMData>(),
 #endif // GPS_RTCM_DATA_HPP
-#if defined(UAVIONIX_ADSB_OUT_CFG_HPP)
-	create_stream_list_item<MavlinkStreamUavionixADSBOutCfg>(),
-#endif // UAVIONIX_ADSB_OUT_CFG_HPP
-#if defined(UAVIONIX_ADSB_OUT_DYNAMIC_HPP)
-	create_stream_list_item<MavlinkStreamUavionixADSBOutDynamic>()
-#endif // UAVIONIX_ADSB_OUT_DYNAMIC_HPP
 };
 
 const char *get_stream_name(const uint16_t msg_id)

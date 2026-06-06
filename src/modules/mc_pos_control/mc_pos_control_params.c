@@ -896,3 +896,253 @@ PARAM_DEFINE_FLOAT(MPC_XY_VEL_ALL, -10.0f);
  * @group Multicopter Position Control
  */
 PARAM_DEFINE_FLOAT(MPC_Z_VEL_ALL, -3.0f);
+
+/**
+ * Advanced Position Control Mode
+ *
+ * Selects the position controller algorithm.
+ * 0: Original cascaded PID (default)
+ * 1: Gain-Scheduled PID (interpolates gains based on arm_angle)
+ * 2: LQR Gain Scheduling
+ * 3: Linear MPC
+ *
+ * @min 0
+ * @max 3
+ * @value 0 Original PID
+ * @value 1 Gain-Scheduled PID
+ * @value 2 LQR
+ * @value 3 MPC
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_INT32(MPCA_MODE, 0);
+
+/**
+ * MPC gradient-projection step size (alpha)
+ *
+ * Larger values converge faster but may oscillate.
+ * Must be tuned together with MPCA_MPC_R_DELTA.
+ *
+ * @min 1.0
+ * @max 30.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_MPC_ALPHA, 20.0f);
+
+/**
+ * MPC delta-u penalty weight
+ *
+ * Penalizes control changes across MPC steps.
+ * Higher values smoother control but slower response.
+ *
+ * @min 0.0
+ * @max 0.1
+ * @decimal 4
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_MPC_R_DELTA, 0.005f);
+
+/**
+ * Enable differential flatness feedforward in MPC mode
+ *
+ * @boolean
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_INT32(MPCA_FF_EN, 1);
+
+/**
+ * Flatness feedforward blending factor
+ *
+ * 0 = pure MPC feedback, 1 = pure flatness feedforward.
+ * Start with 0.3 for safe tuning.
+ *
+ * @min 0.0
+ * @max 1.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_FF_BLEND, 0.30f);
+
+/**
+ * Vehicle mass for flatness feedforward [kg]
+ *
+ * @min 0.1
+ * @max 10.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_FF_MASS, 1.50f);
+
+/**
+ * Perching system master enable
+ *
+ * Master switch for the entire perching/contact-detection subsystem.
+ * 0 = OFF: No contact detection, no FSM, no setpoint override.
+ * 1 = MONITOR: Receives contact_state and logs diagnostics only.
+ * 2 = DETECT: Contact detection active, perching states entered,
+ *              but NO setpoint override and NO thrust ramp-down.
+ * 3 = FULL: Complete perching system (detect + FSM + setpoint override + Spring Model).
+ *
+ * @min 0
+ * @max 3
+ * @value 0 OFF
+ * @value 1 MONITOR
+ * @value 2 DETECT
+ * @value 3 FULL
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_INT32(MPCA_PC_EN, 0);
+
+/**
+ * Perching compliance soft gain factor
+ *
+ * Multiplier for position P-gain during compliant contact phase.
+ * 0.2 = 20% of normal stiffness.
+ *
+ * @min 0.05
+ * @max 1.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_K_SOFT, 0.20f);
+
+/**
+ * Perching thrust ramp-down time
+ *
+ * Time in seconds to linearly reduce thrust from hover to minimum.
+ *
+ * @min 1.0
+ * @max 20.0
+ * @decimal 1
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_RAMP_T, 5.0f);
+
+/**
+ * Perching idle thrust ratio
+ *
+ * DEPRECATED: PERCHED phase now uses zero thrust (mechanical arms hold the drone).
+ * This parameter only affects the RAMP_DOWN end-point for backward compatibility.
+ * Set to 0 for pure spring-model behavior.
+ *
+ * @min 0.00
+ * @max 0.50
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_IDLE_THR, 0.00f);
+
+/**
+ * Perching spring preload offset
+ *
+ * During COMPLIANT phase, the position setpoint is set to current_position + preload.
+ * This creates a small constant position error that acts as spring pre-compression,
+ * generating a gentle restoring force to keep the drone against the pole.
+ * A value of 0.02m means the drone tries to stay 2cm deeper than its current position.
+ *
+ * @unit m
+ * @min 0.00
+ * @max 0.10
+ * @decimal 3
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_PRELOAD, 0.020f);
+
+/**
+ * Perching spring model enable
+ *
+ * When enabled (1), COMPLIANT phase uses spring-model thrust recomputation
+ * (thrust = hover / cos(tilt)) to keep vertical component at hover.
+ * When disabled (0), the original controller output is used without correction,
+ * which produces integral windup and hard-pushing behavior for comparison.
+ *
+ * @boolean
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_INT32(MPCA_PC_SPRING, 1);
+
+/**
+ * Perching trigger source selection
+ *
+ * Select which contact detection sources are allowed to trigger perching.
+ * 0 = BOTH: IMU-ICD and Stall detection both active.
+ * 1 = IMU_ONLY: Only IMU-ICD contact_state can trigger perching.
+ * 2 = STALL_ONLY: Only position-based stall detection can trigger perching.
+ *
+ * @min 0
+ * @max 2
+ * @value 0 BOTH
+ * @value 1 IMU_ONLY
+ * @value 2 STALL_ONLY
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_INT32(MPCA_PC_TRIG, 0);
+
+/**
+ * Stall detection distance threshold
+ *
+ * Maximum position drift allowed during stall confirmation.
+ * If the drone moves more than this distance during the stall timeout,
+ * the stall candidate is reset.
+ *
+ * @unit m
+ * @min 0.01
+ * @max 0.50
+ * @decimal 3
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_STALL_D, 0.03f);
+
+/**
+ * Stall detection timeout
+ *
+ * Duration in seconds that the drone must remain nearly stopped
+ * and within the distance threshold to confirm a stall.
+ *
+ * @unit s
+ * @min 0.1
+ * @max 5.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_STALL_T, 1.0f);
+
+/**
+ * Stall detection position gate
+ *
+ * Minimum NED Y position to allow stall detection.
+ * This prevents false positives far from the pole.
+ *
+ * @unit m
+ * @min 0.0
+ * @max 20.0
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_GATE, 4.90f);
+
+/**
+ * Stall detection: position error threshold.
+ *
+ * Minimum setpoint-to-actual position difference to consider "approaching".
+ *
+ * @unit m
+ * @min 0.01
+ * @max 0.50
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_SERR, 0.05f);
+
+/**
+ * Stall detection: velocity threshold.
+ *
+ * Maximum velocity magnitude to consider "nearly stopped".
+ *
+ * @unit m/s
+ * @min 0.01
+ * @max 0.50
+ * @decimal 2
+ * @group Multicopter Position Control
+ */
+PARAM_DEFINE_FLOAT(MPCA_PC_SVEL, 0.10f);

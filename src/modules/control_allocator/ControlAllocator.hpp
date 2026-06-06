@@ -43,16 +43,7 @@
 
 #include <ActuatorEffectiveness.hpp>
 #include <ActuatorEffectivenessMultirotor.hpp>
-#include <ActuatorEffectivenessStandardVTOL.hpp>
-#include <ActuatorEffectivenessTiltrotorVTOL.hpp>
-#include <ActuatorEffectivenessTailsitterVTOL.hpp>
-#include <ActuatorEffectivenessRoverAckermann.hpp>
-#include <ActuatorEffectivenessRoverDifferential.hpp>
-#include <ActuatorEffectivenessFixedWing.hpp>
 #include <ActuatorEffectivenessMCTilt.hpp>
-#include <ActuatorEffectivenessCustom.hpp>
-#include <ActuatorEffectivenessUUV.hpp>
-#include <ActuatorEffectivenessHelicopter.hpp>
 
 #include <ControlAllocation.hpp>
 #include <ControlAllocationPseudoInverse.hpp>
@@ -77,7 +68,8 @@
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/failure_detector_status.h>
-
+#include "huaqiccc_motor_lut.hpp"
+#include <uORB/topics/huaqiccc_morph_angle.h>
 class ControlAllocator : public ModuleBase<ControlAllocator>, public ModuleParams, public px4::ScheduledWorkItem
 {
 public:
@@ -145,16 +137,7 @@ private:
 	enum class EffectivenessSource {
 		NONE = -1,
 		MULTIROTOR = 0,
-		FIXED_WING = 1,
-		STANDARD_VTOL = 2,
-		TILTROTOR_VTOL = 3,
-		TAILSITTER_VTOL = 4,
-		ROVER_ACKERMANN = 5,
-		ROVER_DIFFERENTIAL = 6,
-		MOTORS_6DOF = 7,
 		MULTIROTOR_WITH_TILT = 8,
-		CUSTOM = 9,
-		HELICOPTER = 10,
 	};
 
 	enum class FailureMode {

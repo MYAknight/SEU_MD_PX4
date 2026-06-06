@@ -219,8 +219,8 @@ void FlightTaskAuto::overrideCruiseSpeed(const float cruise_speed_m_s)
 
 void FlightTaskAuto::rcHelpModifyYaw(float &yaw_sp)
 {
-	// Only set a yawrate setpoint if weather vane is not active or the yaw stick is out of its dead-zone
-	if (!_weathervane.isActive() || fabsf(_sticks.getYawExpo()) > FLT_EPSILON) {
+	// Only set a yawrate setpoint if the yaw stick is out of its dead-zone
+	if (fabsf(_sticks.getYawExpo()) > FLT_EPSILON) {
 		_stick_yaw.generateYawSetpoint(_yawspeed_setpoint, yaw_sp, _sticks.getYawExpo(), _yaw, _is_yaw_good_for_control,
 					       _deltatime);
 
@@ -466,9 +466,6 @@ bool FlightTaskAuto::_evaluateTriplets()
 		_next_was_valid = _sub_triplet_setpoint.get().next.valid;
 	}
 
-	// activation/deactivation of weather vane is based on parameter WV_EN and setting of navigator (allow_weather_vane)
-	_weathervane.setNavigatorForceDisabled(_sub_triplet_setpoint.get().current.disable_weather_vane);
-
 	// Calculate the current vehicle state and check if it has updated.
 	State previous_state = _current_state;
 	_current_state = _getCurrentState();
@@ -483,46 +480,29 @@ bool FlightTaskAuto::_evaluateTriplets()
 				_triplet_next_wp,
 				_sub_triplet_setpoint.get().next.yaw,
 				_sub_triplet_setpoint.get().next.yawspeed_valid ? _sub_triplet_setpoint.get().next.yawspeed : (float)NAN,
-				_weathervane.isActive(), _sub_triplet_setpoint.get().current.type);
+				false, _sub_triplet_setpoint.get().current.type);
 		_obstacle_avoidance.checkAvoidanceProgress(
 			_position, _triplet_prev_wp, _target_acceptance_radius, Vector2f(_closest_pt));
 	}
 
 	// set heading
-	_weathervane.update();
-
-	if (_weathervane.isActive()) {
+	if (!_is_yaw_good_for_control) {
+		_yaw_lock = false;
 		_yaw_setpoint = NAN;
-		// use the yawrate setpoint from WV only if not moving lateral (velocity setpoint below half of _param_mpc_xy_cruise)
-		// otherwise, keep heading constant (as output from WV is not according to wind in this case)
-		bool vehicle_is_moving_lateral = _velocity_setpoint.xy().longerThan(_param_mpc_xy_cruise.get() / 2.0f);
+		_yawspeed_setpoint = 0.f;
 
-		if (vehicle_is_moving_lateral) {
-			_yawspeed_setpoint = 0.0f;
-
-		} else {
-			_yawspeed_setpoint = _weathervane.getWeathervaneYawrate();
-		}
+	} else if ((_type != WaypointType::takeoff || _sub_triplet_setpoint.get().current.disable_weather_vane)
+		   && _sub_triplet_setpoint.get().current.yaw_valid) {
+		// Use the yaw computed in Navigator except during takeoff because
+		// Navigator is not handling the yaw reset properly.
+		// But: use if from Navigator during takeoff if disable_weather_vane is true,
+		// because we're then aligning to the transition waypoint.
+		// TODO: fix in navigator
+		_yaw_setpoint = _sub_triplet_setpoint.get().current.yaw;
+		_yawspeed_setpoint = NAN;
 
 	} else {
-		if (!_is_yaw_good_for_control) {
-			_yaw_lock = false;
-			_yaw_setpoint = NAN;
-			_yawspeed_setpoint = 0.f;
-
-		} else if ((_type != WaypointType::takeoff || _sub_triplet_setpoint.get().current.disable_weather_vane)
-			   && _sub_triplet_setpoint.get().current.yaw_valid) {
-			// Use the yaw computed in Navigator except during takeoff because
-			// Navigator is not handling the yaw reset properly.
-			// But: use if from Navigator during takeoff if disable_weather_vane is true,
-			// because we're then aligning to the transition waypoint.
-			// TODO: fix in navigator
-			_yaw_setpoint = _sub_triplet_setpoint.get().current.yaw;
-			_yawspeed_setpoint = NAN;
-
-		} else {
-			_set_heading_from_mode();
-		}
+		_set_heading_from_mode();
 	}
 
 	return true;

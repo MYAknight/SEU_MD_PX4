@@ -33,6 +33,8 @@
 
 add_subdirectory(PositionControl)
 add_subdirectory(Takeoff)
+add_subdirectory(AdvancedPositionControl)
+add_subdirectory(FlatnessFeedforward)
 
 px4_add_module(
 	MODULE modules__mc_pos_control
@@ -44,6 +46,8 @@ px4_add_module(
 	DEPENDS
 		PositionControl
 		Takeoff
+		AdvancedPositionControl
+		FlatnessFeedforward
 		controllib
 		geo
 		SlewRate

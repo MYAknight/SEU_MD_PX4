@@ -222,44 +222,8 @@ ControlAllocator::update_effectiveness_source()
 			tmp = new ActuatorEffectivenessMultirotor(this);
 			break;
 
-		case EffectivenessSource::STANDARD_VTOL:
-			tmp = new ActuatorEffectivenessStandardVTOL(this);
-			break;
-
-		case EffectivenessSource::TILTROTOR_VTOL:
-			tmp = new ActuatorEffectivenessTiltrotorVTOL(this);
-			break;
-
-		case EffectivenessSource::TAILSITTER_VTOL:
-			tmp = new ActuatorEffectivenessTailsitterVTOL(this);
-			break;
-
-		case EffectivenessSource::ROVER_ACKERMANN:
-			tmp = new ActuatorEffectivenessRoverAckermann();
-			break;
-
-		case EffectivenessSource::ROVER_DIFFERENTIAL:
-			tmp = new ActuatorEffectivenessRoverDifferential();
-			break;
-
-		case EffectivenessSource::FIXED_WING:
-			tmp = new ActuatorEffectivenessFixedWing(this);
-			break;
-
-		case EffectivenessSource::MOTORS_6DOF: // just a different UI from MULTIROTOR
-			tmp = new ActuatorEffectivenessUUV(this);
-			break;
-
 		case EffectivenessSource::MULTIROTOR_WITH_TILT:
 			tmp = new ActuatorEffectivenessMCTilt(this);
-			break;
-
-		case EffectivenessSource::CUSTOM:
-			tmp = new ActuatorEffectivenessCustom(this);
-			break;
-
-		case EffectivenessSource::HELICOPTER:
-			tmp = new ActuatorEffectivenessHelicopter(this);
 			break;
 
 		default:
@@ -388,7 +352,14 @@ ControlAllocator::Run()
 
 		check_for_motor_failures();
 
-		update_effectiveness_matrix_if_needed(EffectivenessUpdateReason::NO_EXTERNAL_UPDATE);
+		// hjq: Enhanced matrix update with rate-limiting for morphing support
+		static hrt_abstime last_cfg_update = 0;
+		if ((now - last_cfg_update) >= 100_ms) {
+			update_effectiveness_matrix_if_needed(EffectivenessUpdateReason::CONFIGURATION_UPDATE);
+			last_cfg_update = now;
+		} else {
+			update_effectiveness_matrix_if_needed(EffectivenessUpdateReason::NO_EXTERNAL_UPDATE);
+		}
 
 		// Set control setpoint vector(s)
 		matrix::Vector<float, NUM_AXES> c[ActuatorEffectiveness::MAX_NUM_MATRICES];
@@ -452,6 +423,55 @@ ControlAllocator::Run()
 void
 ControlAllocator::update_effectiveness_matrix_if_needed(EffectivenessUpdateReason reason)
 {
+	{
+		static uORB::Subscription huaqiccc_morph_sub{ORB_ID(huaqiccc_morph_angle)};
+		static float huaqiccc_arm_angle = 0.0f;
+		static bool huaqiccc_active = false;
+
+		huaqiccc_morph_angle_s morph_msg;
+		if (huaqiccc_morph_sub.update(&morph_msg)) {
+			huaqiccc_arm_angle = morph_msg.arm_angle;
+			huaqiccc_active = true;
+			PX4_INFO("huaqiccc: morph angle=%.3f", (double)huaqiccc_arm_angle);
+		}
+
+		if (huaqiccc_active) {
+
+			// Rebuild effectiveness matrix directly from precomputed LUT
+			float px[4], py[4], pz[4];
+			huaqiccc_get_motor_params(huaqiccc_arm_angle, px, py, pz);
+
+			matrix::Matrix<float, NUM_AXES, NUM_ACTUATORS> eff_matrix;
+			eff_matrix.setZero();
+			const float thrust_z = -1.0f;
+			// KM values matching CA_ROTORx_KM in airframe 4400
+			const float km[4] = {-0.05f, 0.05f, 0.05f, -0.05f};
+
+			for (int i = 0; i < 4; ++i) {
+				eff_matrix(0, i) = py[i] * thrust_z;      // ROLL
+				eff_matrix(1, i) = -px[i] * thrust_z;     // PITCH
+				eff_matrix(2, i) = km[i];                  // YAW
+				eff_matrix(3, i) = 0.0f;                   // THRUST_X
+				eff_matrix(4, i) = 0.0f;                   // THRUST_Y
+				eff_matrix(5, i) = thrust_z;                // THRUST_Z
+			}
+
+			// Apply matrix atomically to all control allocation instances
+			matrix::Vector<float, NUM_ACTUATORS> trim;
+			matrix::Vector<float, NUM_ACTUATORS> lin_point;
+			trim.setZero();
+			lin_point.setZero();
+
+			for (int i = 0; i < _num_control_allocation; ++i) {
+				if (_control_allocation[i] != nullptr) {
+					_control_allocation[i]->setEffectivenessMatrix(
+						eff_matrix, trim, lin_point, 4, true);
+				}
+			}
+			_last_effectiveness_update = hrt_absolute_time();
+			return; // Skip standard effectiveness source to avoid override
+		}
+	}
 	ActuatorEffectiveness::Configuration config{};
 
 	if (reason == EffectivenessUpdateReason::NO_EXTERNAL_UPDATE

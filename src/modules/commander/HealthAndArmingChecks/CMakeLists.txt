@@ -40,7 +40,6 @@ px4_add_library(health_and_arming_checks
 	checks/gyroCheck.cpp
 	checks/baroCheck.cpp
 	checks/imuConsistencyCheck.cpp
-	checks/airspeedCheck.cpp
 	checks/distanceSensorChecks.cpp
 	checks/escCheck.cpp
 	checks/rcCalibrationCheck.cpp
@@ -59,7 +58,6 @@ px4_add_library(health_and_arming_checks
 	checks/flightTimeCheck.cpp
 	checks/missionCheck.cpp
 	checks/rcAndDataLinkCheck.cpp
-	checks/vtolCheck.cpp
 	checks/offboardCheck.cpp
 )
 add_dependencies(health_and_arming_checks mode_util)

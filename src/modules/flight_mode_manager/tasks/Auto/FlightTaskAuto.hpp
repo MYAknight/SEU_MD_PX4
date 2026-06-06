@@ -46,7 +46,6 @@
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <lib/geo/geo.h>
-#include <lib/weather_vane/WeatherVane.hpp>
 #include <lib/mathlib/math/filter/AlphaFilter.hpp>
 #include <lib/motion_planning/PositionSmoothing.hpp>
 #include "Sticks.hpp"
@@ -201,8 +200,6 @@ private:
 	MapProjection _reference_position{}; /**< Class used to project lat/lon setpoint into local frame. */
 	float _reference_altitude{NAN}; /**< Altitude relative to ground. */
 	hrt_abstime _time_stamp_reference{0}; /**< time stamp when last reference update occured. */
-
-	WeatherVane _weathervane{this}; /**< weathervane library, used to implement a yaw control law that turns the vehicle nose into the wind */
 
 	matrix::Vector3f _initial_land_position;
 

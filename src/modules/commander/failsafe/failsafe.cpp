@@ -328,13 +328,6 @@ void Failsafe::checkStateAndMode(const hrt_abstime &time_us, const State &state,
 {
 	updateArmingState(time_us, state.armed, status_flags);
 
-	const bool in_forward_flight = state.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING
-				       || state.vtol_in_transition_mode;
-
-	// Do not enter failsafe while doing a vtol takeoff after the vehicle has started a transition and before it reaches the loiter
-	// altitude. The vtol takeoff navigaton mode will set mission_finished to true as soon as the loiter is established
-	const bool ignore_link_failsafe = state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF
-					  && in_forward_flight && !state.mission_finished;
 
 	// Manual control (RC) loss
 	if (!status_flags.manual_control_signal_lost) {
@@ -348,11 +341,10 @@ void Failsafe::checkStateAndMode(const hrt_abstime &time_us, const State &state,
 					    && (_param_com_rcl_except.get() & (int)ManualControlLossExceptionBits::Hold);
 	const bool rc_loss_ignored_offboard = state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_OFFBOARD
 					      && (_param_com_rcl_except.get() & (int)ManualControlLossExceptionBits::Offboard);
-	const bool rc_loss_ignored_takeoff = (state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF ||
-					      state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF)
-					     && (_param_com_rcl_except.get() & (int)ManualControlLossExceptionBits::Hold);
+	const bool rc_loss_ignored_takeoff = (state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF)
+				     && (_param_com_rcl_except.get() & (int)ManualControlLossExceptionBits::Hold);
 	const bool rc_loss_ignored = rc_loss_ignored_mission || rc_loss_ignored_loiter || rc_loss_ignored_offboard ||
-				     rc_loss_ignored_takeoff || ignore_link_failsafe || _manual_control_lost_at_arming;
+				     rc_loss_ignored_takeoff || false || _manual_control_lost_at_arming;
 
 	if (_param_com_rc_in_mode.get() != int32_t(offboard_loss_failsafe_mode::Land_mode) && !rc_loss_ignored) {
 		CHECK_FAILSAFE(status_flags, manual_control_signal_lost,
@@ -361,19 +353,11 @@ void Failsafe::checkStateAndMode(const hrt_abstime &time_us, const State &state,
 
 	// GCS connection loss
 	const bool gcs_connection_loss_ignored = state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_LAND ||
-			state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_PRECLAND || ignore_link_failsafe;
+			state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_PRECLAND || false;
 
 	if (_param_nav_dll_act.get() != int32_t(gcs_connection_loss_failsafe_mode::Disabled) && !gcs_connection_loss_ignored) {
 		CHECK_FAILSAFE(status_flags, gcs_connection_lost,
 			       fromNavDllOrRclActParam(_param_nav_dll_act.get()).causedBy(Cause::GCSConnectionLoss));
-	}
-
-	// VTOL transition failure (quadchute)
-	if (state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION ||
-	    state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER ||
-	    state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF ||
-	    state.user_intended_mode == vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF) {
-		CHECK_FAILSAFE(status_flags, vtol_fixed_wing_system_failure, fromQuadchuteActParam(_param_com_qc_act.get()));
 	}
 
 	// Mission

@@ -39,6 +39,7 @@
 
 #include "PositionControl/PositionControl.hpp"
 #include "Takeoff/Takeoff.hpp"
+#include "AdvancedPositionControl/AdvancedPositionControl.hpp"
 
 #include <drivers/drv_hrt.h>
 #include <lib/controllib/blocks.hpp>
@@ -55,15 +56,19 @@
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
+#include <uORB/topics/contact_state.h>
 #include <uORB/topics/hover_thrust_estimate.h>
+#include <uORB/topics/huaqiccc_morph_angle.h>
 #include <uORB/topics/parameter_update.h>
 #include <uORB/topics/trajectory_setpoint.h>
 #include <uORB/topics/vehicle_attitude_setpoint.h>
+#include <uORB/topics/vehicle_attitude.h>
 #include <uORB/topics/vehicle_constraints.h>
 #include <uORB/topics/vehicle_control_mode.h>
 #include <uORB/topics/vehicle_land_detected.h>
 #include <uORB/topics/vehicle_local_position.h>
 #include <uORB/topics/vehicle_local_position_setpoint.h>
+#include <uORB/topics/actuator_outputs.h>
 
 using namespace time_literals;
 
@@ -105,6 +110,10 @@ private:
 	uORB::Subscription _vehicle_constraints_sub{ORB_ID(vehicle_constraints)};
 	uORB::Subscription _vehicle_control_mode_sub{ORB_ID(vehicle_control_mode)};
 	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};
+	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+	uORB::Subscription _huaqiccc_morph_angle_sub{ORB_ID(huaqiccc_morph_angle)};
+	uORB::Subscription _actuator_outputs_sub{ORB_ID(actuator_outputs_sim)};
+	uORB::Subscription _actuator_outputs_hw_sub{ORB_ID(actuator_outputs)};
 
 	hrt_abstime _time_stamp_last_loop{0};		/**< time stamp of last loop iteration */
 	hrt_abstime _time_position_control_enabled{0};
@@ -126,6 +135,43 @@ private:
 		.maybe_landed = true,
 		.landed = true,
 	};
+
+	// Perching state
+	enum class PerchingPhase {
+		NONE,
+		APPROACH,
+		CONTACT,
+		COMPLIANT,
+		RAMP_DOWN,
+		PERCHED
+	};
+	PerchingPhase _perching_phase{PerchingPhase::NONE};
+	bool _perching_active{false};
+	hrt_abstime _perching_start_time{0};
+	hrt_abstime _perching_armed_time{0};
+	bool _was_armed{false};
+	float _perching_contact_x{0.0f}; // x position when contact was first detected
+	float _perching_start_z{0.0f};   // z position when perching started
+	hrt_abstime _ramp_start_time{0};
+	hrt_abstime _stall_start_time{0};
+	float _stall_start_x{0.0f};
+	float _stall_start_y{0.0f};
+	float _compliant_sp_x{0.0f};     // compliant setpoint x
+	// Grasp secure detection
+	hrt_abstime _grasp_check_time{0};
+	float _grasp_check_x{0.0f};
+	float _grasp_check_z{0.0f};
+	bool _grasp_secure{false};
+	bool _imu_stable_ever{false};
+	bool _compliant_integral_reset{false};
+	uORB::Subscription _contact_state_sub{ORB_ID(contact_state)};
+
+	// COMPLIANT phase statistics
+	float _compliant_thrust_sum{0.0f};
+	int   _compliant_thrust_count{0};
+	float _compliant_max_pitch{0.0f};
+	float _compliant_motor_sum{0.0f};
+	int   _compliant_motor_count{0};
 
 	DEFINE_PARAMETERS(
 		// Position Control
@@ -175,7 +221,31 @@ private:
 		(ParamFloat<px4::params::MPC_MAN_Y_TAU>)    _param_mpc_man_y_tau,
 
 		(ParamFloat<px4::params::MPC_XY_VEL_ALL>)   _param_mpc_xy_vel_all,
-		(ParamFloat<px4::params::MPC_Z_VEL_ALL>)    _param_mpc_z_vel_all
+		(ParamFloat<px4::params::MPC_Z_VEL_ALL>)    _param_mpc_z_vel_all,
+
+		// Advanced control mode selector
+		(ParamInt<px4::params::MPCA_MODE>)          _param_mpca_mode,
+		(ParamFloat<px4::params::MPCA_MPC_ALPHA>)   _param_mpca_mpc_alpha,
+		(ParamFloat<px4::params::MPCA_MPC_R_DELTA>) _param_mpca_mpc_r_delta,
+
+		// Flatness feedforward parameters
+		(ParamInt<px4::params::MPCA_FF_EN>)       _param_mpca_ff_en,
+		(ParamFloat<px4::params::MPCA_FF_BLEND>)  _param_mpca_ff_blend,
+		(ParamFloat<px4::params::MPCA_FF_MASS>)   _param_mpca_ff_mass,
+
+		// Perching compliance control
+		(ParamInt<px4::params::MPCA_PC_EN>)       _param_mpca_pc_en,
+		(ParamFloat<px4::params::MPCA_PC_K_SOFT>) _param_mpca_pc_k_soft,
+		(ParamFloat<px4::params::MPCA_PC_RAMP_T>) _param_mpca_pc_ramp_t,
+		(ParamFloat<px4::params::MPCA_PC_PRELOAD>) _param_mpca_pc_preload,
+		(ParamFloat<px4::params::MPCA_PC_IDLE_THR>) _param_mpca_pc_idle_thr,
+		(ParamInt<px4::params::MPCA_PC_SPRING>) _param_mpca_pc_spring_en,
+		(ParamInt<px4::params::MPCA_PC_TRIG>)     _param_mpca_pc_trig,
+		(ParamFloat<px4::params::MPCA_PC_STALL_D>) _param_mpca_pc_stall_d,
+		(ParamFloat<px4::params::MPCA_PC_STALL_T>) _param_mpca_pc_stall_t,
+		(ParamFloat<px4::params::MPCA_PC_GATE>)   _param_mpca_pc_gate,
+		(ParamFloat<px4::params::MPCA_PC_SERR>) _param_mpca_pc_stall_err,
+		(ParamFloat<px4::params::MPCA_PC_SVEL>) _param_mpca_pc_stall_vel
 	);
 
 	control::BlockDerivative _vel_x_deriv; /**< velocity derivative in x */
@@ -183,6 +253,7 @@ private:
 	control::BlockDerivative _vel_z_deriv; /**< velocity derivative in z */
 
 	PositionControl _control;  /**< class for core PID position control */
+	AdvancedPositionControl _advanced_control; /**< advanced controller for morphing drone */
 
 	hrt_abstime _last_warn{0}; /**< timer when the last warn message was sent out */
 

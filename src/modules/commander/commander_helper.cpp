@@ -91,35 +91,27 @@ bool is_multirotor(const vehicle_status_s &current_status)
 
 bool is_rotary_wing(const vehicle_status_s &current_status)
 {
-	return is_multirotor(current_status)
-	       || (current_status.system_type == VEHICLE_TYPE_HELICOPTER)
-	       || (current_status.system_type == VEHICLE_TYPE_COAXIAL);
+	return is_multirotor(current_status);
 }
 
 bool is_vtol(const vehicle_status_s &current_status)
 {
-	return (current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER_DUOROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER_QUADROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_TILTROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_FIXEDROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER);
+	return false;
 }
 
 bool is_vtol_tailsitter(const vehicle_status_s &current_status)
 {
-	return (current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER_DUOROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER_QUADROTOR ||
-		current_status.system_type == VEHICLE_TYPE_VTOL_TAILSITTER);
+	return false;
 }
 
 bool is_fixed_wing(const vehicle_status_s &current_status)
 {
-	return current_status.system_type == VEHICLE_TYPE_FIXED_WING;
+	return false;
 }
 
 bool is_ground_vehicle(const vehicle_status_s &current_status)
 {
-	return (current_status.system_type == VEHICLE_TYPE_BOAT || current_status.system_type == VEHICLE_TYPE_GROUND_ROVER);
+	return false;
 }
 
 // End time for currently blinking LED message, 0 if no blink message

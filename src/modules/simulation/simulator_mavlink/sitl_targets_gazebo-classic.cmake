@@ -71,11 +71,7 @@ if(gazebo_FOUND)
 	)
 
 	set(models
-		advanced_plane
-		believer
-		boat
-		cloudship
-		glider
+		huaqiccc
 		iris
 		iris_dual_gps
 		iris_foggy_lidar
@@ -86,22 +82,8 @@ if(gazebo_FOUND)
 		iris_rplidar
 		iris_vision
 		omnicopter
-		plane
-		plane_cam
-		plane_catapult
-		plane_lidar
 		px4vision
-		quadtailsitter
-		r1_rover
-		rover
-		standard_vtol
-		standard_vtol_drop
-		tailsitter
-		techpod
-		tiltrotor
 		typhoon_h480
-		uuv_bluerov2_heavy
-		uuv_hippocampus
 	)
 
 	set(worlds
@@ -110,6 +92,7 @@ if(gazebo_FOUND)
 		empty
 		ksql_airport
 		mcmillan_airfield
+		perching_pole
 		sonoma_raceway
 		warehouse
 		windy

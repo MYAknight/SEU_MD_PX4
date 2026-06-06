@@ -47,7 +47,6 @@ list(APPEND flight_tasks_all
 	ManualAltitudeSmoothVel
 	ManualPosition
 	ManualPositionSmoothVel
-	Transition
 )
 
 if(NOT px4_constrained_flash_build)
@@ -110,7 +109,6 @@ px4_add_module(
 		${CMAKE_CURRENT_BINARY_DIR}/FlightTasks_generated.cpp
 	DEPENDS
 		px4_work_queue
-		WeatherVane
 		flighttasks_generated
 )
 

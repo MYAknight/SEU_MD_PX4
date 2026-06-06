@@ -70,19 +70,6 @@ bool FlightTaskManualAcceleration::update()
 
 	_constraints.want_takeoff = _checkTakeoff();
 
-	// check if an external yaw handler is active and if yes, let it update the yaw setpoints
-	_weathervane.update();
-
-	if (_weathervane.isActive()) {
-		_yaw_setpoint = NAN;
-
-		// only enable the weathervane to change the yawrate when position lock is active (and thus the pos. sp. are NAN)
-		if (Vector2f(_position_setpoint).isAllFinite()) {
-			// vehicle is steady
-			_yawspeed_setpoint += _weathervane.getWeathervaneYawrate();
-		}
-	}
-
 	return ret;
 }
 

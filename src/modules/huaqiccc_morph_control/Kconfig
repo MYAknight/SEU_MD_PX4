@@ -1,0 +1,8 @@
+menuconfig MODULES_HUAQICCC_MORPH_CONTROL
+	bool "huaqiccc morphing arm control"
+	default n
+	---help---
+		Control a single linear actuator (PWM servo on AUX1) with
+		AS5600 magnetic encoder feedback (I2C). Simple P-control
+		with deadband. Publishes huaqiccc_morph_angle for
+		ControlAllocator LUT updates.

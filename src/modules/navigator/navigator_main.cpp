@@ -51,7 +51,6 @@
 #include <dataman/dataman.h>
 #include <drivers/drv_hrt.h>
 #include <lib/geo/geo.h>
-#include <lib/adsb/AdsbConflict.h>
 #include <lib/mathlib/mathlib.h>
 #include <px4_platform_common/px4_config.h>
 #include <px4_platform_common/defines.h>
@@ -75,7 +74,6 @@ Navigator::Navigator() :
 	_mission(this),
 	_loiter(this),
 	_takeoff(this),
-	_vtol_takeoff(this),
 	_land(this),
 	_precland(this),
 	_rtl(this)
@@ -87,7 +85,6 @@ Navigator::Navigator() :
 	_navigation_mode_array[3] = &_takeoff;
 	_navigation_mode_array[4] = &_land;
 	_navigation_mode_array[5] = &_precland;
-	_navigation_mode_array[6] = &_vtol_takeoff;
 
 	/* iterate through navigation modes and initialize _mission_item for each */
 	for (unsigned int i = 0; i < NAVIGATOR_MODE_ARRAY_SIZE; i++) {
@@ -107,10 +104,6 @@ Navigator::Navigator() :
 
 	// Update the timeout used in mission_block (which can't hold it's own parameters)
 	_mission.set_payload_deployment_timeout(_param_mis_payload_delivery_timeout.get());
-
-	_adsb_conflict.set_conflict_detection_params(_param_nav_traff_a_hor_ct.get(),
-			_param_nav_traff_a_ver.get(),
-			_param_nav_traff_collision_time.get(), _param_nav_traff_avoid.get());
 
 	reset_triplets();
 }
@@ -555,16 +548,6 @@ void Navigator::run()
 
 				// CMD_NAV_TAKEOFF is acknowledged by commander
 
-			} else if (cmd.command == vehicle_command_s::VEHICLE_CMD_NAV_VTOL_TAKEOFF) {
-
-				_vtol_takeoff.setTransitionAltitudeAbsolute(cmd.param7);
-
-				// after the transition the vehicle will establish on a loiter at this position
-				_vtol_takeoff.setLoiterLocation(matrix::Vector2d(cmd.param5, cmd.param6));
-
-				// loiter height is the height above takeoff altitude at which the vehicle will establish on a loiter circle
-				_vtol_takeoff.setLoiterHeight(cmd.param1);
-
 			} else if (cmd.command == vehicle_command_s::VEHICLE_CMD_DO_LAND_START) {
 
 				// find NAV_CMD_DO_LAND_START in the mission and
@@ -660,9 +643,6 @@ void Navigator::run()
 				set_cruising_throttle();
 			}
 		}
-
-		/* Check for traffic */
-		check_traffic();
 
 		/* Check geofence violation */
 		geofence_breach_check(have_geofence_position_data);
@@ -803,11 +783,6 @@ void Navigator::run()
 		case vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF:
 			_pos_sp_triplet_published_invalid_once = false;
 			navigation_mode_new = &_takeoff;
-			break;
-
-		case vehicle_status_s::NAVIGATION_STATE_AUTO_VTOL_TAKEOFF:
-			_pos_sp_triplet_published_invalid_once = false;
-			navigation_mode_new = &_vtol_takeoff;
 			break;
 
 		case vehicle_status_s::NAVIGATION_STATE_AUTO_LAND:
@@ -1244,68 +1219,6 @@ void Navigator::load_fence_from_file(const char *filename)
 	_geofence.loadFromFile(filename);
 }
 
-void Navigator::take_traffic_conflict_action()
-{
-
-	vehicle_command_s vcmd = {};
-
-	switch (_adsb_conflict._conflict_detection_params.traffic_avoidance_mode) {
-
-	case 2: {
-			_rtl.set_return_alt_min(true);
-			vcmd.command = vehicle_command_s::VEHICLE_CMD_NAV_RETURN_TO_LAUNCH;
-			publish_vehicle_cmd(&vcmd);
-			break;
-		}
-
-	case 3: {
-			vcmd.command = vehicle_command_s::VEHICLE_CMD_NAV_LAND;
-			publish_vehicle_cmd(&vcmd);
-			break;
-
-		}
-
-	case 4: {
-
-			vcmd.command = vehicle_command_s::VEHICLE_CMD_NAV_LOITER_UNLIM;
-			publish_vehicle_cmd(&vcmd);
-			break;
-
-		}
-	}
-
-}
-
-void Navigator::run_fake_traffic()
-{
-
-	_adsb_conflict.run_fake_traffic(get_global_position()->lat, get_global_position()->lon,
-					get_global_position()->alt);
-}
-
-void Navigator::check_traffic()
-{
-
-	if (_traffic_sub.updated()) {
-
-		_traffic_sub.copy(&_adsb_conflict._transponder_report);
-
-		uint16_t required_flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS |
-					  transponder_report_s::PX4_ADSB_FLAGS_VALID_HEADING |
-					  transponder_report_s::PX4_ADSB_FLAGS_VALID_VELOCITY | transponder_report_s::PX4_ADSB_FLAGS_VALID_ALTITUDE;
-
-		if ((_adsb_conflict._transponder_report.flags & required_flags) == required_flags) {
-
-			_adsb_conflict.detect_traffic_conflict(get_global_position()->lat, get_global_position()->lon,
-							       get_global_position()->alt, _local_pos.vx, _local_pos.vy, _local_pos.vz);
-
-			if (_adsb_conflict.handle_traffic_conflict()) {
-				take_traffic_conflict_action();
-			}
-		}
-	}
-}
-
 bool Navigator::abort_landing()
 {
 	// only abort if currently landing and position controller status updated
@@ -1347,11 +1260,6 @@ int Navigator::custom_command(int argc, char *argv[])
 		get_instance()->load_fence_from_file(GEOFENCE_FILENAME);
 		return 0;
 
-	} else if (!strcmp(argv[0], "fake_traffic")) {
-
-		get_instance()->run_fake_traffic();
-
-		return 0;
 	}
 
 	return print_usage("unknown command");
@@ -1552,7 +1460,6 @@ controller.
 	PRINT_MODULE_USAGE_NAME("navigator", "controller");
 	PRINT_MODULE_USAGE_COMMAND("start");
 	PRINT_MODULE_USAGE_COMMAND_DESCR("fencefile", "load a geofence file from SD card, stored at etc/geofence.txt");
-	PRINT_MODULE_USAGE_COMMAND_DESCR("fake_traffic", "publishes 4 fake transponder_report_s uORB messages");
 	PRINT_MODULE_USAGE_DEFAULT_COMMANDS();
 
 	return 0;

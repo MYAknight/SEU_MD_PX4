@@ -552,8 +552,7 @@ transition_result_t Commander::arm(arm_disarm_reason_t calling_reason, bool run_
 			}
 
 			if (!_vehicle_control_mode.flag_control_climb_rate_enabled &&
-			    !_failsafe_flags.manual_control_signal_lost && !_is_throttle_low
-			    && _vehicle_status.vehicle_type != vehicle_status_s::VEHICLE_TYPE_ROVER) {
+				    !_failsafe_flags.manual_control_signal_lost && !_is_throttle_low) {
 				mavlink_log_critical(&_mavlink_log_pub, "Arming denied: high throttle\t");
 				events::send(events::ID("commander_arm_denied_throttle_high"),
 				{events::Log::Critical, events::LogInternal::Info},
@@ -1084,32 +1083,8 @@ Commander::handle_command(const vehicle_command_s &cmd)
 		break;
 
 	case vehicle_command_s::VEHICLE_CMD_DO_ORBIT:
-
-		transition_result_t main_ret;
-
-		if (_vehicle_status.in_transition_mode) {
-			main_ret = TRANSITION_DENIED;
-
-		} else if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING) {
-			// for fixed wings the behavior of orbit is the same as loiter
-			if (_user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER)) {
-				main_ret = TRANSITION_CHANGED;
-
-			} else {
-				main_ret = TRANSITION_DENIED;
-			}
-
-		} else {
-			// Switch to orbit state and let the orbit task handle the command further
-			if (_user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_ORBIT)) {
-				main_ret = TRANSITION_CHANGED;
-
-			} else {
-				main_ret = TRANSITION_DENIED;
-			}
-		}
-
-		if (main_ret != TRANSITION_DENIED) {
+		// Switch to orbit state and let the orbit task handle the command further
+		if (_user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_ORBIT)) {
 			cmd_result = vehicle_command_ack_s::VEHICLE_CMD_RESULT_ACCEPTED;
 
 		} else {
@@ -1589,25 +1564,9 @@ void Commander::updateParameters()
 
 	_auto_disarm_killed.set_hysteresis_time_from(false, _param_com_kill_disarm.get() * 1_s);
 
-	const bool is_rotary = is_rotary_wing(_vehicle_status) || (is_vtol(_vehicle_status)
-			       && _vtol_vehicle_status.vehicle_vtol_state != vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW);
-	const bool is_fixed = is_fixed_wing(_vehicle_status) || (is_vtol(_vehicle_status)
-			      && _vtol_vehicle_status.vehicle_vtol_state == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW);
-	const bool is_ground = is_ground_vehicle(_vehicle_status);
-
-	/* disable manual override for all systems that rely on electronic stabilization */
-	if (is_rotary) {
-		_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
-
-	} else if (is_fixed) {
-		_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_FIXED_WING;
-
-	} else if (is_ground) {
-		_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROVER;
-	}
-
-	_vehicle_status.is_vtol = is_vtol(_vehicle_status);
-	_vehicle_status.is_vtol_tailsitter = is_vtol_tailsitter(_vehicle_status);
+	_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
+	_vehicle_status.is_vtol = false;
+	_vehicle_status.is_vtol_tailsitter = false;
 
 	// _mode_switch_mapped = (RC_MAP_FLTMODE > 0)
 	if (_param_rc_map_fltmode != PARAM_INVALID && (param_get(_param_rc_map_fltmode, &value_int32) == PX4_OK)) {
@@ -2031,36 +1990,7 @@ void Commander::safetyButtonUpdate()
 
 void Commander::vtolStatusUpdate()
 {
-	// Make sure that this is only adjusted if vehicle really is of type vtol
-	if (_vtol_vehicle_status_sub.update(&_vtol_vehicle_status) && is_vtol(_vehicle_status)) {
-
-		// Check if there has been any change while updating the flags (transition = rotary wing status)
-		const auto new_vehicle_type = _vtol_vehicle_status.vehicle_vtol_state == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_FW ?
-					      vehicle_status_s::VEHICLE_TYPE_FIXED_WING :
-					      vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
-
-		if (new_vehicle_type != _vehicle_status.vehicle_type) {
-			_vehicle_status.vehicle_type = new_vehicle_type;
-			_status_changed = true;
-		}
-
-		const bool new_in_transition = _vtol_vehicle_status.vehicle_vtol_state ==
-					       vtol_vehicle_status_s::VEHICLE_VTOL_STATE_TRANSITION_TO_FW
-					       || _vtol_vehicle_status.vehicle_vtol_state == vtol_vehicle_status_s::VEHICLE_VTOL_STATE_TRANSITION_TO_MC;
-
-		if (_vehicle_status.in_transition_mode != new_in_transition) {
-			_vehicle_status.in_transition_mode = new_in_transition;
-			_status_changed = true;
-		}
-
-		if (_vehicle_status.in_transition_to_fw != (_vtol_vehicle_status.vehicle_vtol_state ==
-				vtol_vehicle_status_s::VEHICLE_VTOL_STATE_TRANSITION_TO_FW)) {
-			_vehicle_status.in_transition_to_fw = (_vtol_vehicle_status.vehicle_vtol_state ==
-							       vtol_vehicle_status_s::VEHICLE_VTOL_STATE_TRANSITION_TO_FW);
-			_status_changed = true;
-		}
-
-	}
+	// No-op for non-VTOL vehicles
 }
 
 void Commander::updateTunes()
@@ -2244,8 +2174,7 @@ void Commander::checkAndInformReadyForTakeoff()
 #ifdef CONFIG_ARCH_BOARD_PX4_SITL
 	static bool ready_for_takeoff_printed = false;
 
-	if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING ||
-	    _vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_FIXED_WING) {
+		if (_vehicle_status.vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) {
 		if (!ready_for_takeoff_printed &&
 		    _health_and_arming_checks.canArm(vehicle_status_s::NAVIGATION_STATE_AUTO_TAKEOFF)) {
 			PX4_INFO("%sReady for takeoff!%s", PX4_ANSI_COLOR_GREEN, PX4_ANSI_COLOR_RESET);
