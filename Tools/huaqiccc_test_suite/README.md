@@ -1,5 +1,16 @@
 # huaqiccc 变形无人机测试套件
 
+> **USER_CONFIG / 路径迁移提示**
+>
+> 本套件下的 `runners/*.sh`、`tests/*.sh` 以及部分 Python 脚本中硬编码了原开发环境路径：
+> - `/home/a/Projects/PX4/SEU_MD_PX4`（本仓库根目录）
+> - `/home/a/Projects/YOLO4SEU_MD`（视觉模块仓库）
+> - `/home/a/catkin_ws`（ROS catkin 工作空间）
+> - `/home/a/Projects/PX4/env_seu_md_px4.sh`（PX4 环境脚本）
+>
+> 首次在新机器上运行 SITL 测试前，请全局搜索并替换为你的实际路径。
+> 详见仓库根目录 `Tools/REALFLIGHT_PATH_MIGRATION.md` 的“三、PX4 固件内部测试脚本”章节。
+
 ## 快速开始
 
 ```bash

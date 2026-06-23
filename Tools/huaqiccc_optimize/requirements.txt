@@ -1,0 +1,15 @@
+# optimize 目录依赖
+# 注意：ROS Noetic、PyQt5、mavros_msgs 等已在系统环境中安装
+
+# 日志分析
+pyulog>=0.9.0
+numpy>=1.24.0
+
+# YAML 配置
+pyyaml>=6.0
+
+# MAVLink FTP（pymavlink 通常已随系统安装）
+pymavlink>=2.4.0
+
+# 可选：数据可视化
+matplotlib>=3.3.0

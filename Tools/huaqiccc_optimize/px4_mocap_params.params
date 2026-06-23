@@ -1,0 +1,26 @@
+# Onboard parameters for Vehicle 1
+#
+# Huaqiccc 变形无人机 —— NOKOV 动捕室内飞行参数
+# 适用固件: PX4 v1.14+
+# 使用方式: 在 QGroundControl 中 "Vehicle Setup -> Parameters -> Tools -> Load from file"
+#           导入后重启飞控生效
+#
+# 说明:
+# - 本参数针对室内无 GPS、使用 NOKOV 动捕作为外部视觉(EV)的定位场景
+# - 禁用气压计和测距仪高度辅助，避免与动捕高度冲突
+# - 磁力计设为 MC custom，配合 EV 航向使用
+# - RC 输入模式改为 RC/Joystick fallback，避免 Joystick 先连接导致 RC 失效
+#
+# Vehicle-Id Component-Id Name Value Type
+1	1	EKF2_BARO_CTRL	0	6
+1	1	EKF2_RNG_CTRL	0	6
+1	1	EKF2_MAG_TYPE	4	6
+1	1	EKF2_DECL_TYPE	0	6
+1	1	EKF2_HGT_REF	3	6
+1	1	EKF2_EV_CTRL	15	6
+1	1	EKF2_EV_DELAY	60	6
+1	1	EKF2_EVP_NOISE	0.01	9
+1	1	EKF2_EVV_NOISE	0.01	9
+1	1	EKF2_EVA_NOISE	0.05	9
+1	1	COM_RC_IN_MODE	2	6
+1	1	COM_RCL_EXCEPT	4	6

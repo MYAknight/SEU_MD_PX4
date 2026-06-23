@@ -1,0 +1,135 @@
+# ============================================================
+# Huaqiccc 变形无人机地面站配置文件
+# 所有硬件参数和可修改项集中在此
+# ============================================================
+
+# ------------------------------------------------------------
+# 1. 飞控连接 (HM30 数传)
+# ------------------------------------------------------------
+flight_controller:
+  # 串口设备名，Linux udev 规则可固定此名称
+  serial_port: "/dev/ttyUSB0"
+  baudrate: 115200
+  # MAVROS fcu_url 格式
+  fcu_url: "serial:///dev/ttyUSB0:115200"
+  # MAVROS GCS URL (可选，用于转发到 QGC)
+  gcs_url: "udp://@127.0.0.1"
+  # 自动连接超时 (秒)
+  connect_timeout: 30
+
+# ------------------------------------------------------------
+# 2. 动捕系统 (NOKOV + VRPN)
+# ------------------------------------------------------------
+motion_capture:
+  # VRPN 服务器 IP (NOKOV 主机)
+  server_ip: "192.168.1.5"
+  # VRPN 追踪对象名称
+  tracker_name: "Tracker1"
+  # 发布到 MAVROS 的话题
+  vision_pose_topic: "/mavros/vision_pose/pose"
+
+# ------------------------------------------------------------
+# 3. RTSP 摄像头 (SIYI)
+# ------------------------------------------------------------
+camera:
+  # 主码流 (高分辨率)
+  rtsp_url: "rtsp://192.168.144.25:8554/main.264"
+  # 子码流 (低带宽备用)
+  # rtsp_url: "rtsp://192.168.144.25:8554/sub.264"
+  width: 640
+  height: 360
+  fps: 30
+
+# ------------------------------------------------------------
+# 4. YOLO 视觉检测参数
+# ------------------------------------------------------------
+vision:
+  model_path: "../YOLO4SEU_MD/pillar_detector/weights/best.pt"
+  conf_threshold: 0.5
+  # YAW 对齐控制参数
+  Kp: 1.5
+  max_yaw_rate: 0.5
+  deadzone: 0.08
+  align_hold_frames: 5
+  # 目标锁定 topic
+  lock_topic: "/yolo/lock_target"
+  # 对齐状态 topic
+  aligned_topic: "/yolo/yaw_aligned"
+  # 像素误差 topic
+  error_topic: "/yolo/pixel_error"
+  # 检测图像 topic
+  image_topic: "/yolo/detection_image"
+
+# ------------------------------------------------------------
+# 5. 变形控制参数
+# ------------------------------------------------------------
+morphing:
+  # MAVLink 31440 命令发送方式: "mavros" 或 "direct"
+  command_mode: "mavros"
+  # 默认展开角度 (rad)
+  expand_angle: -0.35
+  # 默认收拢角度 (rad)
+  retract_angle: 0.0
+  # 变形速度 (rad/s, 仅用于显示估算)
+  morph_speed: 0.1
+
+# ------------------------------------------------------------
+# 6. 栖停任务参数
+# ------------------------------------------------------------
+perching:
+  # 悬停高度 (m)
+  hover_z: 2.5
+  # 接近柱子前的悬停位置 (m)
+  approach_x: 4.0
+  approach_y: 0.0
+  # 柱子位置 (m)
+  pole_x: 5.0
+  pole_y: 0.0
+  # 接近速度 (m/s)
+  approach_speed: 0.25
+  # 推动速度 (m/s)
+  push_speed: 0.25
+  # 接触检测方式: "gmo" | "stall" | "both"
+  contact_mode: "stall"
+  # 对齐超时 (秒)
+  align_timeout: 30.0
+
+# ------------------------------------------------------------
+# 7. 安全参数
+# ------------------------------------------------------------
+safety:
+  # 紧急停止时是否强制 disarm
+  emergency_disarm: true
+  # OFFBOARD 丢失保护 (秒)
+  offboard_timeout: 2.0
+  # 最大允许水平漂移 (m)
+  max_xy_drift: 1.0
+  # 最大允许高度偏差 (m)
+  max_z_drift: 1.0
+
+# ------------------------------------------------------------
+# 8. ROS Topic 配置
+# ------------------------------------------------------------
+topics:
+  mavros_state: "/mavros/state"
+  local_pose: "/mavros/local_position/pose"
+  setpoint_raw: "/mavros/setpoint_raw/local"
+  cmd_vel: "/mavros/setpoint_velocity/cmd_vel"
+  arm_angle_pub: "/huaqiccc/arm_angle"
+  # GMO / 接触检测 (如可用)
+  external_force: "/fmu/external_force_estimate/out"
+  contact_state: "/fmu/contact_state/out"
+
+# ------------------------------------------------------------
+# 9. 界面参数
+# ------------------------------------------------------------
+ui:
+  # 视频刷新率 (Hz)
+  video_fps: 30
+  # 状态刷新率 (Hz)
+  status_fps: 10
+  # 窗口标题
+  window_title: "Huaqiccc 变形无人机地面站"
+  # 默认窗口尺寸
+  window_width: 1400
+  window_height: 900

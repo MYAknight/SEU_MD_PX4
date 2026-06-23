@@ -13,10 +13,14 @@ This fork is tailored for the SEU MD morphing-drone **perching on a 16 cm pole**
 **Quick entry points:**
 - SITL perching test: `Tools/huaqiccc_test_suite/runners/param_sweep.sh`
 - Force-estimation validation: `Tools/huaqiccc_test_suite/tests/run_force_test.sh`
+- Real-flight ground station: `Tools/huaqiccc_ground_station/start_ground_station_auto.sh`
+- Automated flight-test toolchain: `Tools/huaqiccc_optimize/start_optimize_station.sh`
 - Key parameters: `MPCA_PC_EN`, `MPCA_PC_PRELOAD`, `MPCA_PC_ADM_KA/KP/KC`, etc.
 - Debug telemetry: `/mavros/debug_value/debug_float_array` (`data[6]=delta_p`, `data[7]=f_est`, `data[9]=pitch_deg`, `data[10..13]=force-estimation intermediates`).
 
 See `Tools/huaqiccc_test_suite/README.md` for the perching workflow and the three optional post-contact adjustment schemes (A/B/C).
+
+> **Migration note:** The ground station and optimize tools were originally separate repositories (`~/Projects/ground_station` and `~/Projects/optimize`). They have been consolidated into this repository under `Tools/huaqiccc_ground_station/` and `Tools/huaqiccc_optimize/`. Several scripts still contain hard-coded absolute paths from the original dev environment; please see `Tools/REALFLIGHT_PATH_MIGRATION.md` before deploying on a new machine.
 
 ---
 

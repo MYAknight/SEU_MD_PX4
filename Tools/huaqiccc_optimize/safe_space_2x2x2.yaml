@@ -1,0 +1,60 @@
+# Huaqiccc 实机调优安全空间配置
+# 2m x 2m x 2m 绝对安全空间
+# 中心点: (1.0, 1.0, 0.1)
+
+safe_space:
+  # 方式：中心点 + 半尺寸
+  center: [1.0, 1.0, 0.1]     # 地面中心 (x, y, z)，单位 m
+  half_size: [1.0, 1.0, 1.0]  # 半尺寸 (x, y, z) -> 总空间 2x2x2m
+
+mission:
+  # 轨迹中心高度（相对于地面中心 z 的增量）
+  flight_height: 1.0
+
+  # 巡航速度（m/s）
+  cruise_speed: 0.3
+
+  # 起飞前/轨迹后悬停时间（秒）
+  hover_time: 10.0
+
+  # setpoint 发布频率（Hz）
+  setpoint_rate: 20.0
+
+  # 安全裕量（m）：实际位置距离边界至少保持这个距离
+  safety_margin: 0.25
+
+  # 默认 MPCA_MODE（可在 GUI 覆盖）
+  # 0=原始 PID, 1=GS-PID, 2=LQR, 3=MPC
+  default_mode: 2
+
+  # 起飞高度（m）
+  takeoff_height: 1.0
+
+  # 降落时最终悬停高度（m，离地高度）
+  land_final_height: 0.3
+
+  # 降落下降速度（m/s）
+  land_speed: 0.2
+
+  # 起飞上升速度（m/s）
+  takeoff_speed: 0.3
+
+hardware:
+  # HM30 地面端串口
+  serial_port: "/dev/ttyUSB0"
+  baudrate: 115200
+
+  # 动捕服务器
+  vrpn_server: "192.168.1.5"
+  vrpn_tracker: "Tracker1"
+
+  # vision throttle 频率（Hz）
+  vision_throttle_hz: 40.0
+
+logging:
+  # 本地日志保存目录
+  # USER_CONFIG: change this path to your own log directory
+  local_log_dir: "~/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_optimize/logs"
+
+  # 飞控 SD 卡日志路径
+  fcu_log_dir: "/fs/microsd/log"
