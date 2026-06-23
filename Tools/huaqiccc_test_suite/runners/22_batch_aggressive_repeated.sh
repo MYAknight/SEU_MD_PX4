@@ -34,7 +34,7 @@ for repeat in 1 2; do
         export MPCA_MODE=$mode
         export MPCA_FF_EN=$ffen
         
-        bash /home/a/huaqiccc_test_suite/runners/03_aggressive_trajectory.sh $mode $ffen > /tmp/run_${run_label}.log 2>&1
+        bash /home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/runners/03_aggressive_trajectory.sh $mode $ffen > /tmp/run_${run_label}.log 2>&1
         
         # Rename result for clarity
         latest=$(ls -t ~/huaqiccc_logs/huaqiccc_flatness_m${mode}_ff${ffen}_*.csv | head -1)

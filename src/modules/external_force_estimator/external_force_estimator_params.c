@@ -1,15 +1,23 @@
 /**
  * @file external_force_estimator_params.c
  *
- * Parameters for the external force estimator (GMO-based contact detection)
+ * Parameters for the external force estimator (IMU-ICD contact detection).
+ *
+ * NOTE: This IMU-only approach has been deprecated on the real huaqiccc
+ * morphing quadrotor because raw IMU acceleration showed no useful change
+ * during pole contact. The module is kept for reference but is no longer
+ * started by default. Active contact detection is in mc_pos_control.
  */
 
 /**
  * IMU-ICD module enable switch
  *
  * When disabled, the module still runs but skips all contact detection logic
- * and publishes STATE_NO_CONTACT continuously. This reduces CPU load when
- * perching capability is not needed.
+ * and publishes STATE_NO_CONTACT continuously.
+ *
+ * NOTE: This IMU-only detector is deprecated on the real vehicle. It is
+ * kept for reference but is not started by default. Leave enabled only for
+ * logging/diagnostic purposes when the module is manually started.
  *
  * @boolean
  * @group External Force Estimator

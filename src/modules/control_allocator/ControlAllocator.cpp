@@ -438,14 +438,19 @@ ControlAllocator::update_effectiveness_matrix_if_needed(EffectivenessUpdateReaso
 		if (huaqiccc_active) {
 
 			// Rebuild effectiveness matrix directly from precomputed LUT
+			// SITL uses SDF-derived motor geometry; real hardware uses measured CAD values.
 			float px[4], py[4], pz[4];
+#ifdef __PX4_POSIX
+			huaqiccc_get_motor_params_sitl(huaqiccc_arm_angle, px, py, pz);
+#else
 			huaqiccc_get_motor_params(huaqiccc_arm_angle, px, py, pz);
+#endif
 
 			matrix::Matrix<float, NUM_AXES, NUM_ACTUATORS> eff_matrix;
 			eff_matrix.setZero();
 			const float thrust_z = -1.0f;
 			// KM values matching CA_ROTORx_KM in airframe 4400
-			const float km[4] = {-0.05f, 0.05f, 0.05f, -0.05f};
+			const float km[4] = {-0.06f, 0.06f, 0.06f, -0.06f};  // matched to airframe CA_ROTOR_KM
 
 			for (int i = 0; i < 4; ++i) {
 				eff_matrix(0, i) = py[i] * thrust_z;      // ROLL

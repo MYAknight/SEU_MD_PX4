@@ -6,8 +6,9 @@
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/topics/actuator_servos.h>
+#include <uORB/topics/actuator_test.h>
 #include <uORB/topics/huaqiccc_morph_angle.h>
-#include <uORB/topics/vehicle_command.h>
+#include <uORB/topics/huaqiccc_morph_cmd.h>
 
 #if defined(CONFIG_I2C)
 #include <nuttx/i2c/i2c_master.h>
@@ -68,25 +69,29 @@ private:
 #endif
 
 	// uORB
-	uORB::Subscription _vehicle_command_sub{ORB_ID(vehicle_command)};
+	uORB::Subscription _morph_cmd_sub{ORB_ID(huaqiccc_morph_cmd)};
+	uORB::Publication<actuator_test_s> _actuator_test_pub{ORB_ID(actuator_test)};
 	uORB::Publication<actuator_servos_s> _actuator_servos_pub{ORB_ID(actuator_servos)};
 	uORB::Publication<huaqiccc_morph_angle_s> _morph_angle_pub{ORB_ID(huaqiccc_morph_angle)};
 
 	// State
 	float _target_arm_angle{0.0f};  ///< Target angle in rad (SITL semantic)
+	float _sim_current_angle{0.0f}; ///< Simulated current angle in SITL mode
 	uint64_t _last_cmd_time{0};     ///< Last time a valid command was received
 	hrt_abstime _last_run{0};
+	uint16_t _status_print_count{0}; ///< Counter for periodic status print
+	uint16_t _last_raw_angle{0};     ///< Last raw AS5600 reading (for calibration debug)
+	bool _as5600_error_printed{false}; ///< Print AS5600 read error only once
+	bool _sim_mode{false};          ///< True when running without hardware (SITL)
 
 	// Constants
 	static constexpr uint8_t AS5600_ADDR = 0x36;
 	static constexpr uint8_t AS5600_REG_ANGLE = 0x0E;
-	static constexpr float MAX_ARM_ANGLE_RAD = -0.4f;  // Fully open (~23 deg)
+	static constexpr float MAX_ARM_ANGLE_RAD = -0.4f;  // Fully open (~23 deg); mechanical limit
 
 	// Parameters
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::MORPH_EN>) _param_morph_en,
-		(ParamFloat<px4::params::MORPH_KP>) _param_morph_kp,
-		(ParamFloat<px4::params::MORPH_DB>) _param_morph_db,
 		(ParamInt<px4::params::MORPH_EMIN>) _param_morph_emin,
 		(ParamInt<px4::params::MORPH_EMAX>) _param_morph_emax,
 		(ParamInt<px4::params::MORPH_RATE>) _param_morph_rate

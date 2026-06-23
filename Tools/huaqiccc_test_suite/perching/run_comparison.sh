@@ -5,12 +5,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PX4_DIR="/home/a/PX4-Autopilot"
+PX4_DIR="/home/a/Projects/PX4/SEU_MD_PX4"
 OUTPUT_DIR="$HOME/huaqiccc_logs"
 mkdir -p "$OUTPUT_DIR"
 
 source /opt/ros/noetic/setup.bash
-source /home/a/catkin_ws/devel/setup.bash
+source /home/a/catkin_ws/devel_isolated/setup.bash
+source /home/a/Projects/PX4/env_seu_md_px4.sh
 
 # ---------- Helper functions ----------
 

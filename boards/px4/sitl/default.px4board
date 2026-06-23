@@ -73,3 +73,8 @@ CONFIG_EXAMPLES_PX4_MAVLINK_DEBUG=y
 CONFIG_EXAMPLES_PX4_SIMPLE_APP=y
 CONFIG_EXAMPLES_WORK_ITEM=y
 CONFIG_MODULES_EXTERNAL_FORCE_ESTIMATOR=y
+# HUAQICCC_MORPH_CONTROL disabled in SITL: no AS5600 encoder, and its simulated
+# morph_angle publication causes the control allocator to rebuild the SITL motor
+# geometry LUT, which makes the vehicle unstable. Perching FSM uses a SITL-only
+# time-based grasp check instead.
+# CONFIG_MODULES_HUAQICCC_MORPH_CONTROL=y

@@ -1,0 +1,46 @@
+# 安全空间配置文件 — 2x2x2m 示例
+# 
+# 使用方式：
+#   python3 safe_offboard_mission.py --config safe_space_2x2x2.yaml --trajectory circle_small
+#
+# 你可以用两种方式定义安全空间：
+#   1) center + half_size（推荐，最简单）
+#   2) corners（8 个角点，最精确）
+
+safe_space:
+  # 方式 1：中心点 + 半尺寸
+  # 中心点通常是你手动标定的地面中心
+  # 半尺寸是从中心到边界的距离
+  center: [1.0, 1.0, 0.1]    # 地面中心 (x, y, z)
+  half_size: [1.0, 1.0, 1.0]  # 半尺寸 (x, y, z) -> 总空间 2x2x2m
+
+  # 方式 2：8 个角点（如果你手动飞行到角点并记录位置，请取消注释并填写）
+  # corners:
+  #   - [0.0, 0.0, 0.1]
+  #   - [2.0, 0.0, 0.1]
+  #   - [2.0, 2.0, 0.1]
+  #   - [0.0, 2.0, 0.1]
+  #   - [0.0, 0.0, 2.1]
+  #   - [2.0, 0.0, 2.1]
+  #   - [2.0, 2.0, 2.1]
+  #   - [0.0, 2.0, 2.1]
+
+mission:
+  # 轨迹中心高度（相对于地面中心 z 的增量）
+  flight_height: 1.0
+
+  # 巡航速度（m/s）
+  cruise_speed: 0.3
+
+  # 起飞前/轨迹后悬停时间（秒）
+  hover_time: 10.0
+
+  # setpoint 发布频率（Hz）
+  setpoint_rate: 20.0
+
+  # 安全裕量（m）：实际位置距离边界至少保持这个距离
+  # 2x2x2 空间建议 0.25m，扩大后可减小
+  safety_margin: 0.25
+
+  # 默认 MPCA_MODE（可在命令行覆盖）
+  default_mode: 2

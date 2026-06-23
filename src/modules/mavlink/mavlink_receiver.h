@@ -120,8 +120,9 @@
 
 using namespace time_literals;
 
-// huaqiccc: custom uORB topic for morphing angle
+// huaqiccc: custom uORB topics for morphing
 #include <uORB/topics/huaqiccc_morph_angle.h>
+#include <uORB/topics/huaqiccc_morph_cmd.h>
 class Mavlink;
 
 class MavlinkReceiver : public ModuleParams

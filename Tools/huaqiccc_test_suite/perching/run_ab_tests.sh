@@ -4,8 +4,8 @@
 
 set -e
 
-PX4_DIR=/home/a/PX4-Autopilot
-TEST_DIR=/home/a/huaqiccc_test_suite/perching
+PX4_DIR=/home/a/Projects/PX4/SEU_MD_PX4
+TEST_DIR=/home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/perching
 LOG_DIR=/home/a/huaqiccc_logs
 
 K_VALUES=("1.00" "0.20" "0.05")

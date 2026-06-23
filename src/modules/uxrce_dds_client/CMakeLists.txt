@@ -53,10 +53,10 @@ else()
 		set(cxx_flags_with_includes "${cxx_flags_with_includes} -I${dir}")
 	endforeach()
 
-	set(lib_dir ${CMAKE_INSTALL_LIBDIR})
-	if("${lib_dir}" STREQUAL "")
-		set(lib_dir "lib")
-	endif()
+	# Force lib_dir to "lib" to match ExternalProject install layout.
+	# GNUInstallDirs may set CMAKE_INSTALL_LIBDIR to lib/<arch> (e.g. lib/x86_64-linux-gnu),
+	# but the Micro-XRCE-DDS-Client ExternalProject installs libraries directly to lib/.
+	set(lib_dir "lib")
 
 	set(microxrceddsclient_src_dir   ${CMAKE_CURRENT_SOURCE_DIR}/Micro-XRCE-DDS-Client)
 	set(microxrceddsclient_build_dir ${CMAKE_CURRENT_BINARY_DIR})

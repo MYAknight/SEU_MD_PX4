@@ -13,6 +13,7 @@
     <arg name="vehicle" default="huaqiccc"/>
     <arg name="world" default="$(find px4)/Tools/huaqiccc_simulation/worlds/perching_pole_16cm.world"/>
     <arg name="sdf" default="$(find mavlink_sitl_gazebo)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
+    <!-- Pass an alternate SDF (e.g. front-camera variant) without changing the default. -->
 
     <!-- gazebo configs -->
     <arg name="gui" default="true"/>

@@ -53,7 +53,6 @@ px4_add_romfs_files(
 	4061_atl_mantis_edu
 	4071_ifo
 	4073_ifo-s
-	4400_huaqiccc
 	4401_huaqiccc_real
 	4500_clover4
 	4900_crazyflie

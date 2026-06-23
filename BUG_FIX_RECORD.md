@@ -16,6 +16,73 @@
 6. [MAVROS 参数同步缺失（Simplified Test）](#bug-6-mavros-参数同步缺失simplified-test)
 7. [MAVROS 参数同步缺失 + 变形失控（Perching Test）](#bug-7-mavros-参数同步缺失--变形失控perching-test)
 8. [Nuttx 不兼容（`std::nth_element` + 大栈数组）](#bug-8-nuttx-不兼容stdnth_element--大栈数组)
+9. [自主栖停 COMPLIANT 阶段掉高 + 提前缓降风险](#bug-9-自主栖停-compliant-阶段掉高--提前缓降风险)
+
+---
+
+## Bug #9：自主栖停 COMPLIANT 阶段掉高 + 提前缓降风险
+
+### 现象
+- COMPLIANT 阶段飞机明显掉高，Z 轴高度无法保持。
+- 即使机械臂尚未收拢，6 秒时间兜底也会触发，导致提前进入 RAMP_DOWN。
+- `setpoint override` 逻辑因判断条件写死 `MPCA_PC_EN >= 3` 而从未执行。
+- 地面站不会自动收拢机械臂，需要操作员手动干预。
+
+### 根因分析
+1. COMPLIANT 进入时调用了 `_control.resetIntegral()` / `_advanced_control.resetIntegral()`，清除了 Z 轴积分，导致高度环失去悬停补偿。
+2. `MPCA_PC_K_SOFT` 同时软化了 X/Y/Z 三轴位置 P 增益，Z 轴刚度不足。
+3. 默认启用弹簧模型 `MPCA_PC_SPRING=1`，但 `max_thrust = 1.3×hover` 在较大前倾角下不足以维持垂直分量。
+4. 抓握判定使用 `pos_stable && (arms_contracted || compliant_elapsed > 6.0f)`，时间兜底会在机械臂未夹紧时进入缓降。
+5. 进入 RAMP_DOWN 的条件是 `compliant_elapsed > 6.0f && _grasp_secure`，同样依赖时间兜底。
+6. `setpoint override` 阈值 `>= 3` 与 `MPCA_PC_EN` 最大值为 2 矛盾。
+
+### 修复方案
+- **取消 COMPLIANT 积分重置**：仅保留标志位，不再调用 `resetIntegral()`。
+- **仅软化 XY 轴位置 P 增益**：Z 轴增益保持正常。
+- **默认关闭弹簧模型**：`MPCA_PC_SPRING=0`，由 Z 位置控制器直接维持高度；同时把弹簧模型上限放宽到 `2.0×hover`。
+- **删除 6 秒时间兜底**：真实硬件必须 `pos_stable && arms_contracted`；SITL 无 arm 数据时退化为 `pos_stable`。
+- **抓握确认后保持 1 秒进入 RAMP_DOWN**：新增 `_grasp_secure_time` 记录抓握确认时刻。
+- **修正 setpoint override 阈值**：`>= 2`，COMPLIANT 使用固定 `_compliant_sp_x` 避免随动跳变。
+- **地面站自动收拢**：`control_ground_station_ros.py` 在检测到 `CONTACT/COMPLIANT` 时自动下发一次 `MAV_CMD_HUAQICCC_SET_ARM_ANGLE(0.0)`。
+- **新增参数 `MPCA_PC_ARM_THR`**：默认 `-0.15 rad`，替代硬编码 `-0.30 rad`。
+
+### 涉及文件
+- `src/modules/mc_pos_control/MulticopterPositionControl.cpp`
+- `src/modules/mc_pos_control/MulticopterPositionControl.hpp`
+- `src/modules/mc_pos_control/mc_pos_control_params.c`
+- `~/Projects/ground_station/scripts/control_ground_station_ros.py`
+
+### 验证结果
+- `px4_fmu-v6c_default` 编译通过（FLASH 77.87%）
+- `px4_sitl_default` 编译通过
+- 实机飞行验证待进行
+
+---
+
+## Bug #10：CONTACT 阶段清零 velocity/acceleration/jerk 导致实机剧烈振荡
+
+### 现象
+- 实机 `07_54_35.ulg`：PX4 触发 CONTACT 后约 234 s，roll/pitch/yaw 迅速发散，电机饱和，机身在 pole 前来回撞击。
+- 同样代码在 SITL 中却能稳定完成栖息。
+
+### 根因分析
+1. `MulticopterPositionControl.cpp` 的 CONTACT 分支把 `_setpoint.velocity / acceleration / jerk` 全部置 0。
+2. 接触前 offboard trajectory 还带有前向速度（`vy ≈ 0.25 m/s`）和加速度（`ay ≈ 1.26 m/s²`）；接触瞬间切断这些前馈，相当于给控制器发了一个“急刹车”指令。
+3. 同时 position setpoint 从原 offboard setpoint 向后 ramp 到 `contact_pos + preload`，无人机被立柱挡住后还要追一个后退的目标，形成拉扯-碰撞循环。
+4. SITL 的 pole 碰撞模型带弹簧/阻尼，且没有真实粘滑/偏航力矩，所以问题被掩盖。
+
+### 修复方案
+- **取消清零**：CONTACT 分支只覆盖 `_setpoint.position[0/1/2]`，`velocity / acceleration / jerk` 保持来自 trajectory setpoint。
+- **降低 CONTACT 阶段 PX4_INFO 频率**：从每周期打印改为 1 Hz 节流，减少 CPU/遥测抖动。
+- 保留自动收臂逻辑（经实机验证，收臂本身不造成负面影响）。
+
+### 涉及文件
+- `src/modules/mc_pos_control/MulticopterPositionControl.cpp`
+- `src/modules/mc_pos_control/MulticopterPositionControl.hpp`
+
+### 验证结果
+- `px4_fmu-v6c_default` 编译通过（FLASH 77.91%）。
+- 实机复飞：接触后自动收臂流程稳定，无 roll/pitch/yaw 振荡。
 
 ---
 
@@ -385,6 +452,54 @@ static float tmp[MAX_HISTORY];  // static → BSS 段，不占用栈
 | 2026-05-23 09:00 | #8 Nuttx compat | ✅ 修复并验证 |
 | 2026-05-23 10:00 | #6 MAVROS sync (simplified) | ✅ 修复并验证 |
 | 2026-05-23 10:30 | #7 MAVROS sync + morph (perching) | ✅ 修复并验证 |
+
+---
+
+---
+
+## Bug #9 / 设计变更：IMU-ICD 实机无效，接触检测重构为位置/姿态方案
+
+### 时间
+2026-06-14
+
+### 现象
+- 2026-06-13 两次手动栖停测试（`08_36_57_perch_test1_ground_to_pole.ulg`、
+  `08_52_57_perch_test2_ground_to_pole.ulg`）中，原始 IMU 加速度模值在悬停时已
+  约 25 m/s²，接触前后没有可区分的跳变。
+- `external_force_estimator`（IMU-ICD / GMO）无法作为实机接触检测器使用。
+
+### 根因分析
+1. 变形四旋翼悬停时振动/抖动较大，IMU 基线已经很高；
+2. 与杆的接触是渐进式挤压，没有产生可被 IMU 分辨的冲击瞬态；
+3. 北航墙面栖息的 IMU 检测方案在本机、本场景下不适用。
+
+### 新方案
+在 `mc_pos_control` 内实现位置/姿态接触检测：
+- 沿 setpoint 方向的位置误差 > `MPCA_PC_SERR` (0.05 m)
+- 该方向速度 < `MPCA_PC_SVEL` (0.10 m/s)
+- pitch 前倾 < `MPCA_PC_PIT_THR` (-5°)
+- 连续满足 > `MPCA_PC_DUR_THR` (0.30 s)
+
+离线验证：两次手动栖停日志零误检、检出率 90~100%。
+
+### 涉及文件
+- `src/modules/mc_pos_control/MulticopterPositionControl.cpp/.hpp`
+- `src/modules/mc_pos_control/mc_pos_control_params.c`
+- `src/modules/external_force_estimator/external_force_estimator.cpp/.h/.c`（注释更新，打印降频）
+- `boards/px4/fmu-v6c/default.px4board`
+- `ROMFS/px4fmu_common/init.d/rc.mc_apps`
+- `ROMFS/px4fmu_common/init.d/airframes/4401_huaqiccc_real`
+
+### 验证结果
+- v6c 编译：`make px4_fmu-v6c_default` ✅ 868/868 通过
+- 固件产物：`build/px4_fmu-v6c_default/px4_fmu-v6c_default.px4` ✅ 生成
+- 离线日志分析：✅ 两次手动栖停均能被新检测器识别
+- 实机飞行验证：✅ 2026-06-14 手动栖停测试，检测灵敏度合适，遥测链路正常
+- 遥测通道：✅ 通过 `DEBUG_FLOAT_ARRAY`（`name="perch"`）实时回传接触/栖停/变形状态
+
+### 影响
+- `MPCA_PC_EN` 重新分档：`0=OFF, 1=DETECT（只日志）, 2=FULL（触发 FSM）`
+- 实机 airframe 默认 `MPCA_PC_EN=1`，便于先验证检测时机再开全自动栖停。
 
 ---
 

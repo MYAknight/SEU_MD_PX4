@@ -57,9 +57,12 @@
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/contact_state.h>
+#include <uORB/topics/debug_array.h>
 #include <uORB/topics/hover_thrust_estimate.h>
 #include <uORB/topics/huaqiccc_morph_angle.h>
+#include <uORB/topics/huaqiccc_morph_cmd.h>
 #include <uORB/topics/parameter_update.h>
+#include <uORB/topics/sensor_combined.h>
 #include <uORB/topics/trajectory_setpoint.h>
 #include <uORB/topics/vehicle_attitude_setpoint.h>
 #include <uORB/topics/vehicle_attitude.h>
@@ -111,9 +114,12 @@ private:
 	uORB::Subscription _vehicle_control_mode_sub{ORB_ID(vehicle_control_mode)};
 	uORB::Subscription _vehicle_land_detected_sub{ORB_ID(vehicle_land_detected)};
 	uORB::Subscription _vehicle_attitude_sub{ORB_ID(vehicle_attitude)};
+	uORB::Subscription _sensor_combined_sub{ORB_ID(sensor_combined)};
 	uORB::Subscription _huaqiccc_morph_angle_sub{ORB_ID(huaqiccc_morph_angle)};
+	uORB::Subscription _huaqiccc_morph_cmd_sub{ORB_ID(huaqiccc_morph_cmd)};
 	uORB::Subscription _actuator_outputs_sub{ORB_ID(actuator_outputs_sim)};
 	uORB::Subscription _actuator_outputs_hw_sub{ORB_ID(actuator_outputs)};
+	uORB::Subscription _vehicle_attitude_setpoint_sub{ORB_ID(vehicle_attitude_setpoint)};
 
 	hrt_abstime _time_stamp_last_loop{0};		/**< time stamp of last loop iteration */
 	hrt_abstime _time_position_control_enabled{0};
@@ -150,21 +156,45 @@ private:
 	hrt_abstime _perching_start_time{0};
 	hrt_abstime _perching_armed_time{0};
 	bool _was_armed{false};
-	float _perching_contact_x{0.0f}; // x position when contact was first detected
+	float _perching_contact_x{0.0f}; // x position when contact was first detected (legacy, kept for debug)
 	float _perching_start_z{0.0f};   // z position when perching started
+	float _perching_contact_pos[3]{0.0f, 0.0f, 0.0f}; // contact point in local NED
+	float _perching_contact_dir[2]{0.0f, 1.0f};       // horizontal unit direction at contact (default forward)
+	float _perching_contact_sp_start[3]{0.0f, 0.0f, 0.0f}; // setpoint at the moment contact was detected, used for smooth ramp
+	hrt_abstime _perching_info_last_time{0}; // throttle CONTACT-phase PX4_INFO prints
 	hrt_abstime _ramp_start_time{0};
-	hrt_abstime _stall_start_time{0};
-	float _stall_start_x{0.0f};
-	float _stall_start_y{0.0f};
 	float _compliant_sp_x{0.0f};     // compliant setpoint x
+
+	// Position/attitude based contact detection state machine.
+	// Replaces the legacy NED-Y stall detector and the deprecated IMU-ICD
+	// detector (external_force_estimator), which showed no useful signal on
+	// the real morphing quadrotor.
+	enum class ContactDetectState {
+		IDLE,
+		CANDIDATE,
+		DETECTED
+	};
+	ContactDetectState _contact_detect_state{ContactDetectState::IDLE};
+	hrt_abstime _contact_candidate_start_time{0};
+	bool _contact_detected{false};
 	// Grasp secure detection
 	hrt_abstime _grasp_check_time{0};
 	float _grasp_check_x{0.0f};
 	float _grasp_check_z{0.0f};
 	bool _grasp_secure{false};
-	bool _imu_stable_ever{false};
+	hrt_abstime _grasp_secure_time{0};
+	hrt_abstime _arm_contracted_start{0}; /**< time when arm angle first exceeded threshold */
+	bool _arm_retract_sent{false};          /**< true once auto-retract command has been issued */
 	bool _compliant_integral_reset{false};
+	// contact_state subscription is kept for compatibility but is no longer
+	// used as a trigger source because the IMU-ICD detector has been deprecated
+	// on the real vehicle (no useful acceleration change during contact).
 	uORB::Subscription _contact_state_sub{ORB_ID(contact_state)};
+	uORB::Publication<debug_array_s> _perch_debug_pub{ORB_ID(debug_array)};
+
+	// Perching auto-retract: publish morph command directly from mc_pos_control
+	// (does not rely on ground-station telemetry)
+	uORB::Publication<huaqiccc_morph_cmd_s> _morph_cmd_pub{ORB_ID(huaqiccc_morph_cmd)};
 
 	// COMPLIANT phase statistics
 	float _compliant_thrust_sum{0.0f};
@@ -172,6 +202,15 @@ private:
 	float _compliant_max_pitch{0.0f};
 	float _compliant_motor_sum{0.0f};
 	int   _compliant_motor_count{0};
+
+	// Admittance / compliance position-refinement state (for schemes A/B/C)
+	float _adm_delta_p{0.0f}; /**< current horizontal preload correction [m] */
+	float _adm_f_est{0.0f};   /**< estimated contact force for scheme A [N] */
+	float _adm_acc_filt{0.0f}; /**< low-pass filtered forward contact force for scheme A [N] */
+	float _adm_dbg_f_total_forward{0.0f};   /**< IMU total horizontal force along forward [N] */
+	float _adm_dbg_f_thrust_forward{0.0f};  /**< thrust horizontal force along forward [N] */
+	float _adm_dbg_acc_forward{0.0f};       /**< IMU horizontal acceleration along forward [m/s^2] */
+	float _adm_dbg_thrust_z{0.0f};          /**< normalized thrust command along body -z [-] */
 
 	DEFINE_PARAMETERS(
 		// Position Control
@@ -238,6 +277,7 @@ private:
 		(ParamFloat<px4::params::MPCA_PC_K_SOFT>) _param_mpca_pc_k_soft,
 		(ParamFloat<px4::params::MPCA_PC_RAMP_T>) _param_mpca_pc_ramp_t,
 		(ParamFloat<px4::params::MPCA_PC_PRELOAD>) _param_mpca_pc_preload,
+		(ParamFloat<px4::params::MPCA_PC_ARM_THR>) _param_mpca_pc_arm_thr,
 		(ParamFloat<px4::params::MPCA_PC_IDLE_THR>) _param_mpca_pc_idle_thr,
 		(ParamInt<px4::params::MPCA_PC_SPRING>) _param_mpca_pc_spring_en,
 		(ParamInt<px4::params::MPCA_PC_TRIG>)     _param_mpca_pc_trig,
@@ -245,7 +285,21 @@ private:
 		(ParamFloat<px4::params::MPCA_PC_STALL_T>) _param_mpca_pc_stall_t,
 		(ParamFloat<px4::params::MPCA_PC_GATE>)   _param_mpca_pc_gate,
 		(ParamFloat<px4::params::MPCA_PC_SERR>) _param_mpca_pc_stall_err,
-		(ParamFloat<px4::params::MPCA_PC_SVEL>) _param_mpca_pc_stall_vel
+		(ParamFloat<px4::params::MPCA_PC_SVEL>) _param_mpca_pc_stall_vel,
+		(ParamFloat<px4::params::MPCA_PC_PIT_THR>) _param_mpca_pc_pitch_thr,
+		(ParamFloat<px4::params::MPCA_PC_DUR_THR>) _param_mpca_pc_dur_thr,
+
+		// Perching admittance/compliance/adaptive position refinement
+		(ParamFloat<px4::params::MPCA_PC_ADM_MASS>) _param_mpca_pc_adm_mass,
+		(ParamFloat<px4::params::MPCA_PC_ADM_KA>)   _param_mpca_pc_adm_ka,
+		(ParamFloat<px4::params::MPCA_PC_ADM_FD>)   _param_mpca_pc_adm_fd,
+		(ParamFloat<px4::params::MPCA_PC_ADM_LIM>)  _param_mpca_pc_adm_lim,
+		(ParamFloat<px4::params::MPCA_PC_ADM_KP>)   _param_mpca_pc_adm_kp,
+		(ParamFloat<px4::params::MPCA_PC_ADM_KV>)   _param_mpca_pc_adm_kv,
+		(ParamFloat<px4::params::MPCA_PC_ADM_KT>)   _param_mpca_pc_adm_kt,
+		(ParamFloat<px4::params::MPCA_PC_ADM_KC>)   _param_mpca_pc_adm_kc,
+		(ParamFloat<px4::params::MPCA_PC_ADM_W1>)   _param_mpca_pc_adm_w1,
+		(ParamFloat<px4::params::MPCA_PC_ADM_W2>)   _param_mpca_pc_adm_w2
 	);
 
 	control::BlockDerivative _vel_x_deriv; /**< velocity derivative in x */

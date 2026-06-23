@@ -73,6 +73,16 @@ class PerchingFlightTest:
     PUSH_SPEED = 0.25      # Max forward speed during push (m/s)
     RATE_HZ = 20.0
 
+    # ---------- Yaw alignment ----------
+    # MAVROS setpoint_raw interprets PositionTarget.yaw in ENU.  The pole is
+    # along world +X, which is ENU yaw = 0.  We therefore use the world-frame
+    # bearing directly.  A tiny epsilon avoids the MAVROS special-case that
+    # sometimes replaces yaw=0 with the current heading.
+    YAW_OFFSET = 0.0
+    YAW_EPS = 0.02
+    YAW_ALIGN_TIMEOUT = 12.0
+    YAW_ALIGN_TOL = math.radians(6.0)
+
     def __init__(self, output_prefix='perching_test'):
         self.output_prefix = output_prefix
         self.rate_hz = self.RATE_HZ
@@ -163,16 +173,32 @@ class PerchingFlightTest:
         mpca_mode = int(os.environ.get('MPCA_MODE', '0'))
         if mpca_mode != 0:
             self._set_param('MPCA_MODE', integer=mpca_mode)
-        self._set_param('MPCA_PC_EN', integer=3)
-        self._set_param('MPCA_PC_GATE', real=0.0)
-        self._set_param('MPCA_PC_TRIG', integer=1)
-        # EFO parameters are now set statically in px4-rc.params
+        self._set_param('MPCA_PC_EN', integer=2)   # 0=OFF, 1=DETECT, 2=FULL
+        self._set_param('MPCA_PC_TRIG', integer=0) # POSITION_ATTITUDE detector
+        # NOTE: MPCA_PC_GATE is deprecated; position/attitude detector uses
+        # setpoint direction instead of an absolute NED-Y gate.
 
     def _state_cb(self, msg):
         self.current_state = msg
 
     def _pose_cb(self, msg):
         self.current_pose = msg.pose
+
+    # ---------- Yaw helpers ----------
+
+    def _get_current_yaw(self):
+        """Extract NED yaw from current pose (rad, -pi..pi)."""
+        if self.current_pose is None:
+            return 0.0
+        q = self.current_pose.orientation
+        siny = 2.0 * (q.w * q.z + q.x * q.y)
+        cosy = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
+        return math.atan2(siny, cosy)
+
+    def _target_yaw(self, from_x, from_y, to_x, to_y):
+        """Compute yaw setpoint that points vehicle body x-axis toward target."""
+        world_bearing = math.atan2(to_y - from_y, to_x - from_x)
+        return world_bearing + self.YAW_OFFSET
 
     def _efo_cb(self, msg):
         self.last_efo_mag = math.sqrt(msg.force_x**2 + msg.force_y**2 + msg.force_z**2)
@@ -351,25 +377,49 @@ class PerchingFlightTest:
 
     # ---------- Flight phases ----------
 
-    def _pre_send(self, x, y, z, count=100):
+    def _pre_send(self, x, y, z, count=100, yaw=None):
         rate = rospy.Rate(self.rate_hz)
+        if yaw is None:
+            yaw = self._target_yaw(x, y, self.POLE_X, self.POLE_Y)
         for _ in range(count):
             if rospy.is_shutdown():
                 return False
-            self._send_setpoint(x, y, z)
+            self._send_setpoint(x, y, z, yaw)
             rate.sleep()
         return True
 
     def _phase_hover(self, duration, x, y, z):
-        print(f"[HOVER] {duration}s at ({x:.1f}, {y:.1f}, {z:.1f})")
+        target_yaw = self._target_yaw(x, y, self.POLE_X, self.POLE_Y)
+        print(f"[HOVER] {duration}s at ({x:.1f}, {y:.1f}, {z:.1f}) yaw={math.degrees(target_yaw):.1f}deg")
         rate = rospy.Rate(self.rate_hz)
         start = rospy.Time.now()
         while not rospy.is_shutdown():
             t = (rospy.Time.now() - start).to_sec()
             if t > duration:
                 break
-            self._send_setpoint(x, y, z)
+            self._send_setpoint(x, y, z, target_yaw)
             self._record('hover', t, x, y, z)
+            rate.sleep()
+        return not rospy.is_shutdown()
+
+    def _phase_yaw_align(self, hold_x, hold_y, hold_z, target_yaw, timeout):
+        print(f"[YAW_ALIGN] Target {math.degrees(target_yaw):.1f}deg, timeout {timeout}s")
+        rate = rospy.Rate(self.rate_hz)
+        start = rospy.Time.now()
+        while not rospy.is_shutdown():
+            t = (rospy.Time.now() - start).to_sec()
+            if t > timeout:
+                print("[YAW_ALIGN] Timeout")
+                break
+            current_yaw = self._get_current_yaw()
+            err = math.atan2(math.sin(target_yaw - current_yaw),
+                             math.cos(target_yaw - current_yaw))
+            if abs(err) < self.YAW_ALIGN_TOL and t > 1.0:
+                print(f"[YAW_ALIGN] Converged, err={math.degrees(err):.1f}deg")
+                break
+            # Position-hold setpoint with explicit yaw; PX4 will yaw while holding position
+            self._send_setpoint(hold_x, hold_y, hold_z, target_yaw)
+            self._record('yaw_align', t, hold_x, hold_y, hold_z)
             rate.sleep()
         return not rospy.is_shutdown()
 
@@ -389,12 +439,14 @@ class PerchingFlightTest:
             y = y1 + (y2 - y1) * alpha
             vx = (x2 - x1) * alpha_d
             vy = (y2 - y1) * alpha_d
-            self._send_setpoint(x, y, z, 0.0, vx, vy, 0.0)
+            target_yaw = self._target_yaw(x, y, self.POLE_X, self.POLE_Y)
+            self._send_setpoint(x, y, z, target_yaw, vx, vy, 0.0)
             self._record('approach', t, x, y, z)
             rate.sleep()
         return not rospy.is_shutdown()
 
-    def _morph_arm_slowly(self, target_angle, duration, hold_x=0.0, hold_y=0.0, hold_z=None, push_x=None, push_y=None, push_z=None):
+    def _morph_arm_slowly(self, target_angle, duration, hold_x=0.0, hold_y=0.0, hold_z=None,
+                          push_x=None, push_y=None, push_z=None, target_yaw=None):
         """
         Gradually morph arm angle while HOLDING position setpoint.
 
@@ -403,7 +455,10 @@ class PerchingFlightTest:
         """
         if hold_z is None:
             hold_z = self.HOVER_Z
-        print(f"[MORPH] Slow morph to {target_angle:.2f} rad over {duration:.1f}s (hold at {hold_x:.1f},{hold_y:.1f},{hold_z:.1f})")
+        if target_yaw is None:
+            target_yaw = self._target_yaw(hold_x, hold_y, self.POLE_X, self.POLE_Y)
+        print(f"[MORPH] Slow morph to {target_angle:.2f} rad over {duration:.1f}s "
+              f"(hold at {hold_x:.1f},{hold_y:.1f},{hold_z:.1f} yaw={math.degrees(target_yaw):.1f}deg)")
         rate_vis = rospy.Rate(10)   # 10 Hz for Gazebo arm visual
         start_angle = self._last_sent_angle if self._last_sent_angle is not None else 0.0
         start_time = rospy.Time.now()
@@ -429,7 +484,7 @@ class PerchingFlightTest:
             sp_x = push_x if push_x is not None else hold_x
             sp_y = push_y if push_y is not None else hold_y
             sp_z = push_z if push_z is not None else hold_z
-            self._send_setpoint(sp_x, sp_y, sp_z)
+            self._send_setpoint(sp_x, sp_y, sp_z, target_yaw)
 
             rate_vis.sleep()
 
@@ -439,7 +494,7 @@ class PerchingFlightTest:
         sp_x = push_x if push_x is not None else hold_x
         sp_y = push_y if push_y is not None else hold_y
         sp_z = push_z if push_z is not None else hold_z
-        self._send_setpoint(sp_x, sp_y, sp_z)
+        self._send_setpoint(sp_x, sp_y, sp_z, target_yaw)
         print(f"[MORPH] Reached {target_angle:.2f} rad")
 
     def _phase_push(self, x_start, y, z, x_target, timeout, speed):
@@ -449,6 +504,8 @@ class PerchingFlightTest:
         contact_detected = False
         contact_time = None
         push_duration_est = abs(x_target - x_start) / max(speed, 0.01)
+        # Keep a fixed approach direction so yaw does not flip once we pass the pole
+        target_yaw = self._target_yaw(x_start, y, self.POLE_X, self.POLE_Y)
 
         while not rospy.is_shutdown():
             t = (rospy.Time.now() - start).to_sec()
@@ -461,7 +518,7 @@ class PerchingFlightTest:
             alpha_d = _smoothstep_deriv(s) / push_duration_est
             x = x_start + (x_target - x_start) * alpha
             vx = (x_target - x_start) * alpha_d
-            self._send_setpoint(x, y, z, 0.0, vx, 0.0, 0.0)
+            self._send_setpoint(x, y, z, target_yaw, vx, 0.0, 0.0)
 
             act_x = self.current_pose.position.x if self.current_pose else x_start
             efo = self.last_efo_mag
@@ -482,7 +539,7 @@ class PerchingFlightTest:
                     for _ in range(20):  # 1s @ 20Hz
                         if rospy.is_shutdown():
                             break
-                        self._send_setpoint(x, y, z)
+                        self._send_setpoint(x, y, z, target_yaw)
                         self._record('push', t, x, y, z)
                         rate.sleep()
                     break
@@ -505,7 +562,8 @@ class PerchingFlightTest:
             alpha_d = _smoothstep_deriv(s) / duration
             x = x_start + (x_end - x_start) * alpha
             vx = (x_end - x_start) * alpha_d
-            self._send_setpoint(x, y, z, 0.0, vx, 0.0, 0.0)
+            target_yaw = self._target_yaw(x, y, self.POLE_X, self.POLE_Y)
+            self._send_setpoint(x, y, z, target_yaw, vx, 0.0, 0.0)
             self._record('retreat', t, x, y, z)
             rate.sleep()
         return not rospy.is_shutdown()
@@ -541,7 +599,9 @@ class PerchingFlightTest:
         self._ensure_offboard()
 
         # Phase 2: Slowly expand arms during hover (with position hold)
-        self._morph_arm_slowly(-0.3, 3.0, hold_x=0.0, hold_y=0.0, hold_z=self.HOVER_Z)
+        hover_yaw = self._target_yaw(0.0, 0.0, self.POLE_X, self.POLE_Y)
+        self._morph_arm_slowly(-0.3, 3.0, hold_x=0.0, hold_y=0.0, hold_z=self.HOVER_Z,
+                               target_yaw=hover_yaw)
 
         # Re-ensure OFFBOARD after morph
         self._ensure_offboard()
@@ -550,8 +610,12 @@ class PerchingFlightTest:
         for _ in range(40):
             if rospy.is_shutdown():
                 return None
-            self._send_setpoint(0.0, 0.0, self.HOVER_Z)
+            self._send_setpoint(0.0, 0.0, self.HOVER_Z, hover_yaw)
             rate.sleep()
+
+        # Phase 2b: Align yaw toward pole before approach
+        if not self._phase_yaw_align(0.0, 0.0, self.HOVER_Z, hover_yaw, self.YAW_ALIGN_TIMEOUT):
+            return None
 
         # Phase 3: Approach to pole front
         if not self._phase_approach(0.0, 0.0, self.HOVER_Z, self.APPROACH_X, self.APPROACH_Y, self.T_APPROACH):
@@ -568,12 +632,25 @@ class PerchingFlightTest:
             # Phase 5: Keep pushing into pole while slowly closing arms
             push_x = self.POLE_X + 0.25  # 25cm past pole to maintain pressure (matches firmware override)
             print(f"[GRASP] Maintaining push at x={push_x:.2f} while closing arms...")
-            self._morph_arm_slowly(0.0, 5.0, hold_x=push_x, hold_y=0.0, hold_z=self.HOVER_Z)
+            # Use the fixed approach direction; do not recompute once past the pole
+            grasp_yaw = self._target_yaw(self.APPROACH_X, self.APPROACH_Y, self.POLE_X, self.POLE_Y)
+            self._morph_arm_slowly(0.0, 5.0, hold_x=push_x, hold_y=0.0, hold_z=self.HOVER_Z,
+                                   target_yaw=grasp_yaw)
             print("[GRASP] Arms closed, maintaining contact...")
-            rospy.sleep(2.0)
+            # Keep streaming setpoints to prevent OFFBOARD timeout while the PX4
+            # perching FSM completes its compliant/ramp-down sequence.
+            hold_start = rospy.Time.now()
+            hold_rate = rospy.Rate(self.rate_hz)
+            while not rospy.is_shutdown():
+                if (rospy.Time.now() - hold_start).to_sec() > 2.0:
+                    break
+                self._send_setpoint(push_x, 0.0, self.HOVER_Z, grasp_yaw)
+                hold_rate.sleep()
         else:
             print("[RESULT] No contact detected within timeout")
-            self._morph_arm_slowly(0.0, 5.0, hold_x=self.APPROACH_X, hold_y=0.0, hold_z=self.HOVER_Z)
+            retreat_yaw = self._target_yaw(self.APPROACH_X, self.APPROACH_Y, self.POLE_X, self.POLE_Y)
+            self._morph_arm_slowly(0.0, 5.0, hold_x=self.APPROACH_X, hold_y=0.0, hold_z=self.HOVER_Z,
+                                   target_yaw=retreat_yaw)
 
         # Phase 6: Land
         print("[LAND] Landing")

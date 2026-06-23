@@ -19,14 +19,21 @@ using namespace time_literals;
 extern "C" __EXPORT int external_force_estimator_main(int argc, char *argv[]);
 
 /**
- * @brief IMU-Based Impulsive Contact Detector (IMU-ICD)
+ * @brief [DEPRECATED ON REAL VEHICLE] IMU-Based Impulsive Contact Detector (IMU-ICD)
  *
- * Detects contact/collision events using raw IMU accelerometer data
- * without external sensors. Based on the observation that physical
- * contact introduces high-frequency transient accelerations that are
- * visible in raw IMU measurements before EKF smoothing.
+ * This was an attempt to detect contact/collision events using raw IMU
+ * accelerometer data without external sensors. It was inspired by wall-
+ * perching work (e.g. Beihang) but was found to be ineffective on the
+ * huaqiccc morphing quadrotor: raw IMU acceleration magnitude in hover
+ * is already ~25 m/s^2 and showed no reliable change during manual
+ * perching tests on 2026-06-13.
  *
- * Academic basis:
+ * The module is kept in the tree for reference and possible future use,
+ * but it is NOT started by default on the real aircraft. Active contact
+ * detection is now implemented inside mc_pos_control using position error,
+ * low forward velocity and pitch attitude.
+ *
+ * Academic basis (original idea):
  *  - Haddadin et al., "External Wrench Estimation, Collision Detection,
  *    and Reflex Reaction for Flying Robots", IEEE T-RO 2017
  *  - Air Bumper (arXiv 2307.06101): IMU-only collision detection via

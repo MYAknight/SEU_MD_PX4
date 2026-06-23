@@ -104,9 +104,12 @@ void ExternalForceEstimator::Run()
 	cs.contact_force[2] = gyro_mag;
 	_contact_state_pub.publish(cs);
 
-	// Debug output every ~1s
+	// Debug output throttled to avoid console/SD log spam. The IMU-ICD approach
+	// was found to be unusable on the real morphing quadrotor because raw IMU
+	// acceleration magnitude did not show a reliable change during contact.
+	// The module is kept for reference but is no longer started by default.
 	static int dbg_cnt = 0;
-	if (++dbg_cnt % 1000 == 0) {
+	if (++dbg_cnt % 10000 == 0) {
 		PX4_INFO("IMU-ICD: state=%d impact=%.2f a_mag=%.2f a_hpf=%.2f gyro=%.2f",
 			 _contact_state, (double)_impact_metric_lpf, (double)a_mag,
 			 (double)a_hpf, (double)gyro_mag);
@@ -295,14 +298,20 @@ int ExternalForceEstimator::print_usage(const char *reason)
 	PRINT_MODULE_DESCRIPTION(
 		R"DESCR_STR(
 ### Description
-IMU-Based Impulsive Contact Detector (IMU-ICD) for sensorless
-contact detection on morphing quadrotors.
+[DEPRECATED ON REAL VEHICLE] IMU-Based Impulsive Contact Detector (IMU-ICD).
 
-Uses raw accelerometer data from sensor_combined to detect
-contact events via high-frequency transient analysis, bypassing
-EKF smoothing that attenuates collision impulses.
+This module was an attempt to replicate wall-perching contact detection
+using only raw IMU accelerometer data. Flight logs from 2026-06-13 showed
+that raw IMU acceleration magnitude on the morphing quadrotor did not
+exhibit a useful change during pole contact (the vehicle is already
+heavily vibrated in hover), so this detector is not used for perching
+on the real aircraft. The code is kept for reference and future work;
+it is NOT started by default in the huaqiccc airframe.
 
-Academic basis:
+The active contact detector is now implemented inside mc_pos_control and
+uses position error, low forward velocity and pitch attitude.
+
+Academic basis (original idea):
 - Haddadin et al., "External Wrench Estimation, Collision Detection,
   and Reflex Reaction for Flying Robots", IEEE T-RO 2017
 - Air Bumper (arXiv 2307.06101): sliding-window IMU thresholding

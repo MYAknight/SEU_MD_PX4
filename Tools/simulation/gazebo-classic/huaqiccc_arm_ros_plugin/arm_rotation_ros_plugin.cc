@@ -25,6 +25,7 @@ namespace gazebo
     ros::Subscriber rosSub;
     ros::Subscriber fixSub;
     ros::Publisher statusPub;
+    ros::Publisher armAnglePub;
     ros::CallbackQueue rosQueue;
     std::thread rosQueueThread;
     std::unique_ptr<ros::AsyncSpinner> asyncSpinner;
@@ -39,6 +40,7 @@ namespace gazebo
     bool autoFixEnabled = true;
     ignition::math::Pose3d fixedPose;
     uint64_t fixFrameCount = 0;
+    uint64_t updateCount = 0;
 
     // Auto-fix thresholds
     double fixThresholdX = 4.85;
@@ -104,6 +106,7 @@ namespace gazebo
       fixSub = rosNode->subscribe(fix_so);
 
       statusPub = rosNode->advertise<std_msgs::Bool>("/huaqiccc/perching_status", 1, true);
+      armAnglePub = rosNode->advertise<std_msgs::Float64>("/huaqiccc/arm_actual_angle", 1, true);
 
       rosQueueThread = std::thread(std::bind(&DualArmRosControlPlugin::RosQueueThread, this));
 
@@ -254,6 +257,15 @@ namespace gazebo
 
       right_joint->SetForce(0, torqueRight);
       left_joint->SetForce(0, torqueLeft);
+
+      // Publish actual arm angle at ~10 Hz for SITL monitoring (matches ground-station morph_angle_rad).
+      updateCount++;
+      if (armAnglePub && (updateCount % 100 == 0))
+      {
+        std_msgs::Float64 msg;
+        msg.data = 0.5 * (rightAngle + leftAngle);
+        armAnglePub.publish(msg);
+      }
     }
 
     ~DualArmRosControlPlugin()

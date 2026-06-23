@@ -32,7 +32,7 @@ for combo in "${combinations[@]}"; do
     export MPCA_MPC_ALPHA=$alpha
     export MPCA_MPC_R_DELTA=$rdelta
     
-    bash /home/a/huaqiccc_test_suite/runners/01_flatness_circle.sh 3 1 > /tmp/run_${label}.log 2>&1
+    bash /home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/runners/01_flatness_circle.sh 3 1 > /tmp/run_${label}.log 2>&1
     
     # Copy result with label
     latest=$(ls -t ~/huaqiccc_logs/huaqiccc_flatness_m3_ff1_with_algo_*.csv | head -1)

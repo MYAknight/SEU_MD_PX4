@@ -17,13 +17,14 @@ echo "========================================"
 
 # Source environments
 source /opt/ros/noetic/setup.bash
-source /home/a/catkin_ws/devel/setup.bash
-export GAZEBO_PLUGIN_PATH="/home/a/huaqiccc_ws/devel/lib:$GAZEBO_PLUGIN_PATH"
+source /home/a/catkin_ws/devel_isolated/setup.bash
+source /home/a/Projects/PX4/env_seu_md_px4.sh
+export GAZEBO_PLUGIN_PATH="/home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/build_gazebo-classic:$GAZEBO_PLUGIN_PATH"
 export DISPLAY=:0
 
 # Inject params into ROMFS before starting PX4
-ROMFS_PARAMS="/home/a/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/px4-rc.params"
-BUILD_PARAMS="/home/a/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/px4-rc.params"
+ROMFS_PARAMS="/home/a/Projects/PX4/SEU_MD_PX4/ROMFS/px4fmu_common/init.d-posix/px4-rc.params"
+BUILD_PARAMS="/home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/etc/init.d-posix/px4-rc.params"
 
 echo "[CONFIG] Setting MPCA_MODE=$MPCA_MODE, MPCA_FF_EN=$MPCA_FF_EN in ROMFS..."
 for f in "$ROMFS_PARAMS" "$BUILD_PARAMS"; do
@@ -53,10 +54,10 @@ for f in "$ROMFS_PARAMS" "$BUILD_PARAMS"; do
 done
 
 # Remove saved parameter files to force ROMFS defaults
-rm -f /home/a/PX4-Autopilot/build/px4_sitl_default/rootfs/parameters.bson
-rm -f /home/a/PX4-Autopilot/build/px4_sitl_default/rootfs/parameters_backup.bson
-rm -f /home/a/PX4-Autopilot/build/px4_sitl_default/parameters.bson
-rm -f /home/a/PX4-Autopilot/build/px4_sitl_default/parameters_backup.bson
+rm -f /home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/rootfs/parameters.bson
+rm -f /home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/rootfs/parameters_backup.bson
+rm -f /home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/parameters.bson
+rm -f /home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/parameters_backup.bson
 echo "[CONFIG] Cleared saved parameter files"
 
 # Cleanup old ROS logs
@@ -81,7 +82,7 @@ sleep 5
 
 # Start simulation
 echo "[LAUNCH] Starting PX4 SITL..."
-roslaunch /home/a/PX4-Autopilot/launch/mavros_posix_sitl.launch &
+roslaunch /home/a/Projects/PX4/SEU_MD_PX4/launch/mavros_posix_sitl.launch &
 SIM_PID=$!
 echo "[LAUNCH] PID=$SIM_PID"
 
@@ -110,7 +111,7 @@ sleep 5
 
 # Run flight test
 echo "[FLIGHT] Starting flatness flight test..."
-PYTHONUNBUFFERED=1 stdbuf -oL python3 /home/a/huaqiccc_test_suite/flight/flatness_circle.py --rate 50 --output "huaqiccc_flatness_m${MPCA_MODE}_ff${MPCA_FF_EN}" 2>&1 | tee /tmp/flatness_flight_m${MPCA_MODE}_ff${MPCA_FF_EN}.log
+PYTHONUNBUFFERED=1 stdbuf -oL python3 /home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/flight/flatness_circle.py --rate 50 --output "huaqiccc_flatness_m${MPCA_MODE}_ff${MPCA_FF_EN}" 2>&1 | tee /tmp/flatness_flight_m${MPCA_MODE}_ff${MPCA_FF_EN}.log
 
 # Stop simulation
 echo "[CLEAN] Stopping simulation..."

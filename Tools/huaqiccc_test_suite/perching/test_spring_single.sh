@@ -6,7 +6,8 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 source /opt/ros/noetic/setup.bash
-source /home/a/catkin_ws/devel/setup.bash
+source /home/a/catkin_ws/devel_isolated/setup.bash
+source /home/a/Projects/PX4/env_seu_md_px4.sh
 
 echo "[CLEAN] Killing old processes..."
 ps aux | grep -E 'px4.*bin|gzserver|gzclient|rosmaster|roslaunch|mavros_node' | grep -v grep | awk '{print $2}' | xargs -r kill -9 2>/dev/null || true
@@ -14,7 +15,7 @@ rm -f /tmp/px4_lock-* /tmp/px4-sock-*
 sleep 5
 
 echo "[START] Launching SITL..."
-cd /home/a/PX4-Autopilot
+cd /home/a/Projects/PX4/SEU_MD_PX4
 roslaunch px4 mavros_posix_sitl_perching_16cm.launch > /tmp/sitl_spring.log 2>&1 &
 echo "[WAIT] 55s..."
 sleep 55

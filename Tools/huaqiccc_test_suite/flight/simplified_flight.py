@@ -306,8 +306,29 @@ class UnifiedFlightTest:
             else:
                 print(f"[WARN] MPCA_MODE set failed after 5 attempts (PX4 may already have correct default from ROMFS)")
             
-            for pname, pval in [('MPC_XY_P', 1.5)]:
-                resp = param_set(param_id=pname, value=ParamValue(real=pval))
+            # SITL can tolerate higher XY P gain than real hardware
+            mpc_xy_p = float(os.environ.get('MPC_XY_P', '4.0'))
+            mpc_xy_vel_p_acc = float(os.environ.get('MPC_XY_VEL_P_ACC', '1.8'))
+            mpc_xy_vel_i_acc = float(os.environ.get('MPC_XY_VEL_I_ACC', '0.4'))
+            mpc_xy_vel_d_acc = float(os.environ.get('MPC_XY_VEL_D_ACC', '0.2'))
+            mpca_ff_mass = float(os.environ.get('MPCA_FF_MASS', '1.5'))
+            mpca_mpc_alpha = float(os.environ.get('MPCA_MPC_ALPHA', '5.0'))
+            mpca_ff_en = int(os.environ.get('MPCA_FF_EN', '1'))
+            # INT32 params must be sent via ParamValue(integer=...)
+            int_params = {'MPCA_FF_EN'}
+            for pname, pval in [
+                ('MPC_XY_P', mpc_xy_p),
+                ('MPC_XY_VEL_P_ACC', mpc_xy_vel_p_acc),
+                ('MPC_XY_VEL_I_ACC', mpc_xy_vel_i_acc),
+                ('MPC_XY_VEL_D_ACC', mpc_xy_vel_d_acc),
+                ('MPCA_FF_MASS', mpca_ff_mass),
+                ('MPCA_MPC_ALPHA', mpca_mpc_alpha),
+                ('MPCA_FF_EN', mpca_ff_en),
+            ]:
+                if pname in int_params:
+                    resp = param_set(param_id=pname, value=ParamValue(integer=int(pval)))
+                else:
+                    resp = param_set(param_id=pname, value=ParamValue(real=float(pval)))
                 if resp.success:
                     tuned.append(pname)
                     print(f"[OK] Set {pname} = {pval}")

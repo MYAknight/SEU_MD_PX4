@@ -20,42 +20,42 @@
 . ${R}etc/init.d/rc.mc_defaults
 
 # =============================================================================
-# Motor Geometry: huaqiccc model at theta=0 (arms closed)
-# PX4 FRD coords: PX+=Front, PY+=Right, PZ+=Down
+# Motor Geometry: huaqiccc model at theta=0 (arms closed) - UPDATED from real hardware measurements
+# PX4 FRD coords: PX+=Front, PY+=Right, PZ+=Down (PZ=0 means motor at FC height)
 # =============================================================================
 param set-default CA_ROTOR_COUNT 4
 
 # Motor 0: back-right (CW)  [MAIN4]
-param set-default CA_ROTOR0_PX -0.0466
-param set-default CA_ROTOR0_PY  0.2480
-param set-default CA_ROTOR0_PZ  0.0237
+param set-default CA_ROTOR0_PX -0.1550
+param set-default CA_ROTOR0_PY  0.2150
+param set-default CA_ROTOR0_PZ 0.0
 param set-default CA_ROTOR0_AX  0.0
 param set-default CA_ROTOR0_AY  0.0
 param set-default CA_ROTOR0_AZ -1.0
 param set-default CA_ROTOR0_KM -0.06
 
 # Motor 1: front-right (CCW) [MAIN3]
-param set-default CA_ROTOR1_PX  0.4125
-param set-default CA_ROTOR1_PY  0.2282
-param set-default CA_ROTOR1_PZ  0.0237
+param set-default CA_ROTOR1_PX  0.2050
+param set-default CA_ROTOR1_PY  0.1650
+param set-default CA_ROTOR1_PZ 0.0
 param set-default CA_ROTOR1_AX  0.0
 param set-default CA_ROTOR1_AY  0.0
 param set-default CA_ROTOR1_AZ -1.0
 param set-default CA_ROTOR1_KM  0.06
 
 # Motor 2: back-left (CCW)   [MAIN2]
-param set-default CA_ROTOR2_PX -0.0512
-param set-default CA_ROTOR2_PY -0.2464
-param set-default CA_ROTOR2_PZ  0.0237
+param set-default CA_ROTOR2_PX -0.1550
+param set-default CA_ROTOR2_PY -0.2150
+param set-default CA_ROTOR2_PZ 0.0
 param set-default CA_ROTOR2_AX  0.0
 param set-default CA_ROTOR2_AY  0.0
 param set-default CA_ROTOR2_AZ -1.0
 param set-default CA_ROTOR2_KM  0.06
 
 # Motor 3: front-left (CW)   [MAIN1]
-param set-default CA_ROTOR3_PX  0.4084
-param set-default CA_ROTOR3_PY -0.2339
-param set-default CA_ROTOR3_PZ  0.0237
+param set-default CA_ROTOR3_PX  0.2050
+param set-default CA_ROTOR3_PY -0.1650
+param set-default CA_ROTOR3_PZ 0.0
 param set-default CA_ROTOR3_AX  0.0
 param set-default CA_ROTOR3_AY  0.0
 param set-default CA_ROTOR3_AZ -1.0
@@ -69,16 +69,30 @@ param set-default PWM_MAIN_FUNC1 104
 param set-default PWM_MAIN_FUNC2 103
 param set-default PWM_MAIN_FUNC3 102
 param set-default PWM_MAIN_FUNC4 101
+# PWM limits calibrated from real hardware ESC range (1100-1900us)
+param set-default PWM_MAIN_MIN1 1100
+param set-default PWM_MAIN_MIN2 1100
+param set-default PWM_MAIN_MIN3 1100
+param set-default PWM_MAIN_MIN4 1100
+param set-default PWM_MAIN_MAX1 1900
+param set-default PWM_MAIN_MAX2 1900
+param set-default PWM_MAIN_MAX3 1900
+param set-default PWM_MAIN_MAX4 1900
 
 # =============================================================================
 # Control allocation settings
 # =============================================================================
-param set-default CA_METHOD 1
+param set-default CA_METHOD 2
 
 # =============================================================================
-# Battery Monitoring (4S LiPo, Pixhawk 4 Power Module)
+# Battery Monitoring (3S equivalent for 14.4V regulated DC supply)
+# Using 14.4V bench power supply; configured as 3S with 4.8V/cell max.
+# V_DIV/A_PER_V kept for Pixhawk 4 Power Module; recalibrate if voltage readout
+# does not match the bench supply.
 # =============================================================================
-param set-default BAT1_N_CELLS 4
+param set-default BAT1_N_CELLS 3
+param set-default BAT1_V_CHARGED 4.8
+param set-default BAT1_V_EMPTY 4.0
 param set-default BAT1_V_DIV 18.1
 param set-default BAT1_A_PER_V 36.3675
 param set-default BAT1_SOURCE 0
@@ -97,8 +111,8 @@ param set-default EKF2_GPS_CTRL 0
 # External Vision (MoCap) fusion: position + height + velocity + yaw
 param set-default EKF2_EV_CTRL 15
 
-# MoCap system delay compensation (20-50ms typical)
-param set-default EKF2_EV_DELAY 0.02
+# MoCap system delay compensation (tested with NOKOV + HM30链路)
+param set-default EKF2_EV_DELAY 60
 
 # Disable magnetometer (indoor magnetic interference)
 # EKF uses gyro integration + MoCap yaw only
@@ -117,18 +131,18 @@ param set-default EKF2_BARO_CTRL 1
 # =============================================================================
 param set-default MAV_0_CONFIG 101
 param set-default MAV_0_MODE 0
-param set-default SER_TEL1_BAUD 57600
+param set-default SER_TEL1_BAUD 115200
 
 # =============================================================================
-# RC Configuration (Joystick/MAVROS only, no physical RC transmitter)
+# RC Configuration: physical RC transmitter (American mode)
 # =============================================================================
-param set-default COM_RC_IN_MODE 1
+param set-default COM_RC_IN_MODE 3
 param set-default RC_MAP_MODE_SW 5
 param set-default RC_MAP_ARM_SW 6
 
 # =============================================================================
-# Safety: disable IO safety switch for bench testing
-# NOTE: Re-enable (set to 0) after airframe verification
+# Safety: disable IO safety switch (required for real flight hardware setup)
+# This airframe does not use a physical safety switch; keep disabled.
 # =============================================================================
 param set-default CBRK_IO_SAFETY 22027
 
@@ -143,24 +157,10 @@ param set-default COM_ARM_EKF_HGT 10.0
 param set-default COM_ARM_EKF_YAW 10.0
 
 # =============================================================================
-# Landing Detector: RELAXED for perching on pole
-# Without this, the vehicle auto-disarms when perched on the pole
+# Landing Detector: use PX4 defaults for normal landing
+# Perching-related contact detection and forced disarm are handled by
+# the external_force_estimator + flight_executor, not by relaxing these params.
 # =============================================================================
-# Disable auto-disarm after landing detection
-param set-default COM_DISARM_LAND -1
-
-# Extend landing detection trigger time (default 1.0s)
-param set-default LNDMC_TRIG_TIME 5.0
-
-# Greatly increase velocity thresholds so perching is NOT detected as landing
-# NOTE: LNDMC_Z_VEL_MAX must be < MPC_LAND_CRWL, enforced by auto-check
-param set-default LNDMC_XY_VEL_MAX 10.0
-param set-default MPC_LAND_CRWL 2.5
-param set-default MPC_LAND_SPEED 2.5
-param set-default LNDMC_Z_VEL_MAX 2.0
-
-# Increase rotation threshold (perched attitude may vary)
-param set-default LNDMC_ROT_MAX 100.0
 
 # =============================================================================
 # Failsafe: indoor safe modes (NO RTL without GPS)
@@ -204,7 +204,7 @@ param set-default MC_YAW_P 3.5
 # =============================================================================
 # Hover thrust estimation
 # =============================================================================
-param set-default MPC_THR_HOVER 0.55
+param set-default MPC_THR_HOVER 0.45
 
 # =============================================================================
 # Position control (conservative for real hardware first flight)
@@ -222,23 +222,33 @@ param set-default MPC_Z_VEL_P_ACC 4.0
 # =============================================================================
 # huaqiccc custom parameters (huaqiccc modifications)
 # =============================================================================
-param set-default MPCA_MODE 2
+param set-default MPCA_MODE 0  # First-flight conservative (was 2); switch to 2(LQR) or 3(MPC) after validation
 param set-default MPCA_MPC_ALPHA 20.0
 param set-default MPCA_MPC_R_DELTA 0.005
 param set-default MPCA_FF_EN 1
 param set-default MPCA_FF_BLEND 0.3
-param set-default MPCA_FF_MASS 1.173
+param set-default MPCA_FF_MASS 1.15
 
-param set-default EFO_ENABLE 1
+# EFO_ENABLE (IMU-ICD) is deprecated on the real vehicle. The module is no
+# longer started by default, but disable it explicitly just in case.
+param set-default EFO_ENABLE 0
 
-# Perching disabled by default; enable manually when ready
-param set-default MPCA_PC_EN 0
+# Perching/contact-detection subsystem.
+# 0=OFF, 1=DETECT (log only, no FSM), 2=FULL (detect + perching FSM).
+# Default to DETECT for safe validation; switch to 2 only after confirming
+# contact detection timing against ground truth.
+param set-default MPCA_PC_EN 1
 param set-default MPCA_PC_TRIG 0
-param set-default MPCA_PC_GATE 0.0
-param set-default MPCA_PC_STALL_D 0.03
-param set-default MPCA_PC_STALL_T 1.0
+
+# New position/attitude based contact detector thresholds.
+# These were derived from manual perching logs on 2026-06-13.
 param set-default MPCA_PC_SERR 0.05
 param set-default MPCA_PC_SVEL 0.10
+param set-default MPCA_PC_PIT_THR -5.0
+param set-default MPCA_PC_DUR_THR 0.30
+
+# Legacy stall-detection parameters (MPCA_PC_GATE, MPCA_PC_STALL_D,
+# MPCA_PC_STALL_T) are deprecated and no longer used.
 
 # =============================================================================
 # Airframe type: Generic Quadcopter
@@ -247,6 +257,7 @@ set MAV_TYPE 2
 
 # =============================================================================
 # Morphing arm control (AS5600 on I2C, actuator on AUX1)
+# Calibrated 2026-06-13: closed=518, expanded=780 (mechanical stop ~775)
 # =============================================================================
 # AUX1: morphing linear servo (Servo1 function)
 # PWM_AUX_REV bit0=1 inverts AUX1 so v=+1.0 -> extend (MIN=1050us)
@@ -258,10 +269,9 @@ param set-default PWM_AUX_REV 1
 
 # Enable morph control module
 param set-default MORPH_EN 1
-param set-default MORPH_EMIN 1880
-param set-default MORPH_EMAX 2270
+param set-default MORPH_EMIN 475
+param set-default MORPH_EMAX 780
 param set-default MORPH_RATE 50
-param set-default MORPH_BUS 2
 
 # =============================================================================
 # Start control allocator

@@ -68,7 +68,11 @@
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_status.h>
 #include <uORB/topics/failure_detector_status.h>
-#include "huaqiccc_motor_lut.hpp"
+#ifdef __PX4_POSIX
+# include "huaqiccc_motor_lut_sitl.hpp"
+#else
+# include "huaqiccc_motor_lut.hpp"
+#endif
 #include <uORB/topics/huaqiccc_morph_angle.h>
 class ControlAllocator : public ModuleBase<ControlAllocator>, public ModuleParams, public px4::ScheduledWorkItem
 {

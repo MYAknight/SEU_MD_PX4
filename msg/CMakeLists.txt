@@ -108,6 +108,7 @@ set(msg_files
 	HomePosition.msg
 	HoverThrustEstimate.msg
 	HuaqicccMorphAngle.msg
+	HuaqicccMorphCmd.msg
 	InputRc.msg
 	InternalCombustionEngineStatus.msg
 	IridiumsbdStatus.msg

@@ -3,6 +3,30 @@ set -e
 
 export MPCA_MODE=${1:-0}  # 0=original PID, 1=GS-PID, 2=LQR, 3=MPC
 
+# Robust cleanup for all ROS/Gazebo/SITL processes
+cleanup_all() {
+    echo "[CLEAN] Killing ROS/Gazebo/SITL processes..."
+    # Kill by process names / command-line patterns
+    sudo -n true 2>/dev/null || true
+    pkill -9 -f "rosmaster" 2>/dev/null || true
+    pkill -9 -f "rosout" 2>/dev/null || true
+    pkill -9 -f "roslaunch" 2>/dev/null || true
+    pkill -9 -f "roscore" 2>/dev/null || true
+    pkill -9 -f "gzserver" 2>/dev/null || true
+    pkill -9 -f "gzclient" 2>/dev/null || true
+    pkill -9 -f "mavros_node" 2>/dev/null || true
+    pkill -9 -f "px4" 2>/dev/null || true
+    pkill -9 -f "simplified_flight.py" 2>/dev/null || true
+    # Free ROS master port if still occupied
+    if command -v fuser >/dev/null 2>&1; then
+        fuser -k 11311/tcp 2>/dev/null || true
+    fi
+    sleep 2
+}
+
+# Ensure cleanup on exit regardless of how the script terminates
+trap cleanup_all EXIT
+
 echo "========================================"
 echo "  huaqiccc Simplified Flight Test"
 echo "  MPCA_MODE=$MPCA_MODE"
@@ -10,13 +34,14 @@ echo "========================================"
 
 # Source environments
 source /opt/ros/noetic/setup.bash
-source /home/a/catkin_ws/devel/setup.bash
-export GAZEBO_PLUGIN_PATH="/home/a/huaqiccc_ws/devel/lib:$GAZEBO_PLUGIN_PATH"
+source /home/a/catkin_ws/devel_isolated/setup.bash
+source /home/a/Projects/PX4/env_seu_md_px4.sh
+export GAZEBO_PLUGIN_PATH="/home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/build_gazebo-classic:$GAZEBO_PLUGIN_PATH"
 export DISPLAY=:0
 
 # Inject MPCA_MODE into ROMFS before starting PX4
-ROMFS_PARAMS="/home/a/PX4-Autopilot/ROMFS/px4fmu_common/init.d-posix/px4-rc.params"
-BUILD_PARAMS="/home/a/PX4-Autopilot/build/px4_sitl_default/etc/init.d-posix/px4-rc.params"
+ROMFS_PARAMS="/home/a/Projects/PX4/SEU_MD_PX4/ROMFS/px4fmu_common/init.d-posix/px4-rc.params"
+BUILD_PARAMS="/home/a/Projects/PX4/SEU_MD_PX4/build/px4_sitl_default/etc/init.d-posix/px4-rc.params"
 echo "[CONFIG] Setting MPCA_MODE=$MPCA_MODE in ROMFS..."
 sed -i "s/^param set-default MPCA_MODE .*/param set-default MPCA_MODE $MPCA_MODE/" "$ROMFS_PARAMS"
 if [ -f "$BUILD_PARAMS" ]; then
@@ -33,9 +58,17 @@ if [ -d "$HOME/.ros/log" ]; then
 fi
 
 # Thorough cleanup
-echo "[CLEAN] Thorough cleanup..."
-pkill -9 -f "roslaunch|roscore|gzserver|gzclient|px4|mavros_node" 2>/dev/null || true
-sleep 3
+cleanup_all
+
+# Wait until rosmaster port is truly free
+for i in $(seq 1 15); do
+    if ! ss -tln 2>/dev/null | grep -q ':11311'; then
+        echo "[OK] ROS master port 11311 is free"
+        break
+    fi
+    echo "[WAIT] Port 11311 still occupied, retrying..."
+    sleep 1
+done
 
 # Start roscore first
 echo "[LAUNCH] Starting roscore..."
@@ -45,7 +78,7 @@ sleep 5
 
 # Start simulation
 echo "[LAUNCH] Starting PX4 SITL..."
-roslaunch /home/a/PX4-Autopilot/launch/mavros_posix_sitl.launch &
+roslaunch /home/a/Projects/PX4/SEU_MD_PX4/launch/mavros_posix_sitl.launch &
 SIM_PID=$!
 echo "[LAUNCH] PID=$SIM_PID"
 
@@ -74,12 +107,11 @@ sleep 5
 
 # Run flight test
 echo "[FLIGHT] Starting simplified flight test..."
-PYTHONUNBUFFERED=1 stdbuf -oL python3 /home/a/huaqiccc_test_suite/flight/simplified_flight.py 2>&1 | tee /tmp/simplified_flight.log
+PYTHONUNBUFFERED=1 stdbuf -oL python3 /home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/flight/simplified_flight.py 2>&1 | tee /tmp/simplified_flight.log
 
-# Stop simulation
+# Stop simulation (cleanup_all runs via EXIT trap as well, but call it explicitly here)
 echo "[CLEAN] Stopping simulation..."
-pkill -9 -f "roslaunch|roscore|gzserver|gzclient|px4|mavros_node" 2>/dev/null || true
-sleep 2
+cleanup_all
 
 echo "========================================"
 echo "  Done"

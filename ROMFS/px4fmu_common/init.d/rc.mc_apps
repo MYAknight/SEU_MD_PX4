@@ -72,7 +72,9 @@ fi
 # Start Multicopter Position Controller.
 #
 mc_hover_thrust_estimator start
-external_force_estimator start
+# external_force_estimator start
+# NOTE: IMU-ICD contact detection is deprecated on the real huaqiccc vehicle.
+# The position/attitude based detector inside mc_pos_control is used instead.
 flight_mode_manager start
 mc_pos_control start
 

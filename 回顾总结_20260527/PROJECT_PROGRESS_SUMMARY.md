@@ -351,7 +351,7 @@ PWM_MAIN_FUNC2     = 102       # Motor2 → MAIN2
 PWM_MAIN_FUNC3     = 103       # Motor3 → MAIN3
 PWM_MAIN_FUNC4     = 104       # Motor4 → MAIN4
 BAT1_N_CELLS       = 4         # 4S LiPo
-CBRK_IO_SAFETY     = 22027     # 禁用安全开关（⚠️ 仅台架测试）
+CBRK_IO_SAFETY     = 22027     # 禁用安全开关（实机飞行保持禁用）
 
 # Morphing Arm Control
 MORPH_EN           = 1         # 变形控制模块启用
@@ -378,7 +378,7 @@ param save
 reboot
 ```
 
-> ⚠️ **安全提醒**：`CBRK_IO_SAFETY=22027` 禁用安全开关，电机可在无物理开关解锁情况下启动。**正式飞行前必须改回 `CBRK_IO_SAFETY=0`**。
+> ⚠️ **安全提醒**：`CBRK_IO_SAFETY=22027` 禁用安全开关，电机可在无物理开关解锁情况下启动。本机型实机飞行保持禁用安全开关；若后续加装物理安全开关，再改回 `CBRK_IO_SAFETY=0`。
 
 ---
 

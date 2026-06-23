@@ -14,20 +14,57 @@
 param set-default CA_AIRFRAME 0
 
 param set-default CA_ROTOR_COUNT 4
-param set-default CA_ROTOR0_PX -0.1936
-param set-default CA_ROTOR0_PY -0.2489
-param set-default CA_ROTOR0_KM -0.05
-param set-default CA_ROTOR1_PX 0.2655
-param set-default CA_ROTOR1_PY -0.2292
-param set-default CA_ROTOR1_KM 0.05
-param set-default CA_ROTOR2_PX -0.1983
-param set-default CA_ROTOR2_PY 0.2455
-param set-default CA_ROTOR2_KM 0.05
-param set-default CA_ROTOR3_PX 0.2614
-param set-default CA_ROTOR3_PY 0.2330
-param set-default CA_ROTOR3_KM -0.05
+
+# Motor 0: back-right (CW)  [Gazebo motorNumber=0 via rbmotor]
+# SITL-matched to huaqiccc.sdf geometry (2026-06-12)
+param set-default CA_ROTOR0_PX -0.2000
+param set-default CA_ROTOR0_PY  0.2455
+param set-default CA_ROTOR0_PZ -0.0394
+param set-default CA_ROTOR0_AX  0.0
+param set-default CA_ROTOR0_AY  0.0
+param set-default CA_ROTOR0_AZ -1.0
+param set-default CA_ROTOR0_KM -0.06
+
+# Motor 1: front-right (CCW) [Gazebo motorNumber=1 via rfmotor]
+param set-default CA_ROTOR1_PX  0.2596
+param set-default CA_ROTOR1_PY  0.2330
+param set-default CA_ROTOR1_PZ -0.0394
+param set-default CA_ROTOR1_AX  0.0
+param set-default CA_ROTOR1_AY  0.0
+param set-default CA_ROTOR1_AZ -1.0
+param set-default CA_ROTOR1_KM  0.06
+
+# Motor 2: back-left (CCW)   [Gazebo motorNumber=2 via lbmotor]
+param set-default CA_ROTOR2_PX -0.1953
+param set-default CA_ROTOR2_PY -0.2489
+param set-default CA_ROTOR2_PZ -0.0394
+param set-default CA_ROTOR2_AX  0.0
+param set-default CA_ROTOR2_AY  0.0
+param set-default CA_ROTOR2_AZ -1.0
+param set-default CA_ROTOR2_KM  0.06
+
+# Motor 3: front-left (CW)   [Gazebo motorNumber=3 via lfmotor]
+param set-default CA_ROTOR3_PX  0.2637
+param set-default CA_ROTOR3_PY -0.2292
+param set-default CA_ROTOR3_PZ -0.0394
+param set-default CA_ROTOR3_AX  0.0
+param set-default CA_ROTOR3_AY  0.0
+param set-default CA_ROTOR3_AZ -1.0
+param set-default CA_ROTOR3_KM -0.06
 
 param set-default MC_PITCHRATE_K 0.5
+
+# SITL-specific MPC tuning: more aggressive gradient step than real hardware default
+param set MPCA_MPC_ALPHA 5.0
+
+# Disable external-force estimator contact detection in SITL to avoid noisy logs
+param set EFO_ENABLE 0
+
+# Disable morphing-arm module in SITL: no AS5600 feedback, and the simulated
+# angle publication causes control-allocator instability via the SITL motor LUT.
+# The perching FSM falls back to a SITL-only time-based grasp check.
+# param set MORPH_EN 1
+# huaqiccc_morph_control start -b 2
 
 param set-default PWM_MAIN_FUNC1 101
 param set-default PWM_MAIN_FUNC2 102

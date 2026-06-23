@@ -13,7 +13,7 @@
 3. [PX4 裁剪与系统精简](#3-px4-裁剪与系统精简)
 4. [变形仿真实现](#4-变形仿真实现)
 5. [三种控制方法实现状态](#5-三种控制方法实现状态)
-6. [GMO（外力估计器）实现](#6-gmo外力估计器实现)
+6. [接触检测实现（历史：GMO/IMU-ICD 尝试）](#6-gmo外力估计器实现)
 7. [栖停（Perching）任务实现](#7-栖停perching任务实现)
 8. [Bug 修复记录](#8-bug-修复记录)
 9. [交叉问题与集成风险](#9-交叉问题与集成风险)
@@ -29,8 +29,8 @@
 - **机械变形**：双臂可在 `[0, -0.50] rad` 范围内展开，改变电机位置与惯性特性
 - **实时控制分配**：根据机臂角度 LUT 重建 6×4 执行器效率矩阵
 - **三种先进控制**：增益调度 PID（GS-PID）、LQR、线性 MPC
-- **外力感知**：基于广义动量观测器（GMO）的接触检测
-- **栖停能力**：检测到稳定接触后自动前推 0.25m 实现抓取
+- **外力感知**：基于位置/姿态的接触检测（GMO/IMU-ICD 在实机无效，已弃用）
+- **栖停能力**：检测到稳定接触后自动进入 CONTACT → COMPLIANT → GRASP → RAMP_DOWN
 
 **整体完成度评估：**
 
@@ -39,8 +39,8 @@
 | PX4 系统裁剪 | ~95% | ✅ 编译通过，FLASH 降至 74.3% |
 | 变形仿真（SITL） | ~90% | ✅ 机臂可控，LUT 实时更新矩阵 |
 | 三种控制方法 | ~90% | ✅ PID/LQR/MPC 飞行验证通过 |
-| GMO 外力估计 | ~75% | ✅ 算法完整，✅ 已编译进固件，⚠️ Python 端未桥接 |
-| 栖停任务 | ~85% | ✅ 端到端仿真验证通过（stall detection 方案） |
+| 接触检测 | ~90% | ✅ 新位置/姿态检测器实机灵敏度已验证（2026-06-14） |
+| 栖停任务 | ~95% | ✅ 端到端仿真验证通过；✅ 实机 `MPCA_PC_EN=2` CONTACT + 自动收臂已稳定（2026-06-23）；⏳ 实机 THROTTLE_RAMP → DISARM 待验证 |
 
 ---
 
@@ -271,67 +271,62 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 
 ---
 
-## 6. GMO（外力估计器）实现
+## 6. 接触检测实现（已重构，2026-06-14）
 
-### 6.1 实现概述
+### 6.1 历史说明：IMU-ICD / GMO 尝试
 
-`external_force_estimator` 模块实现双窗口广义动量观测器：
+`external_force_estimator` 模块曾尝试用双窗口广义动量观测器（GMO）/ IMU 脉冲接触检测（IMU-ICD）
+实现无外部传感器的接触检测。该思路受北航墙面栖息工作启发，代码已完成并在 SITL 中运行。
 
-- **长窗口**（默认 2.0s）：中值滤波，获取加速度基线
-- **短窗口**（默认 0.1s）：中值滤波，获取当前加速度
-- **残差** = 短窗口 − 长窗口
-- **外力** = `EFO_MASS` × 残差，再经 LPF（α=0.8）
-- **运行频率**：250 Hz
+**然而，2026-06-13 实机手动栖停日志显示**：
+- 无人机悬停时原始 IMU 加速度模值已约 **25 m/s²**；
+- 与杆接触前后，IMU 加速度模值没有可区分的跳变；
+- 因此 IMU-ICD 无法为实机栖停提供可靠的接触信号。
 
-#### 接触检测 FSM
+结论：`external_force_estimator` 作为**实机接触检测器是失败的**。代码保留在树中供参考，但：
+- `boards/px4/fmu-v6c/default.px4board` 中 `CONFIG_MODULES_EXTERNAL_FORCE_ESTIMATOR=n`
+- `rc.mc_apps` 中不再 `external_force_estimator start`
+- 相关打印频率已大幅降低
 
-| 状态 | ID | 进入条件 |
-|------|----|----------|
-| NO_CONTACT | 0 | 无外力 |
-| POSSIBLE | 1 | `F_mag > EFO_FTHR` (2.0 N) |
-| CONFIRMED | 2 | 持续 `> EFO_TTHR` (0.03 s) |
-| STABLE | 3 | 陀螺 `< EFO_GTHR` (0.15 rad/s) 且力大于 0.5×阈值 |
-| SLIPPING | 4 | 陀螺 `> 2.5×g_thr` |
+### 6.2 当前方案：位置/姿态接触检测
 
-- `should_close = true` 仅在 `STATE_STABLE` 且置信度 ≥ 0.85 时触发
+接触检测现在完全在 `mc_pos_control` 中实现，使用三个容易获取且可靠的信号：
 
-### 6.2 Nuttx 兼容性修复
+| 信号 | 阈值参数 | 默认值 | 说明 |
+|------|----------|--------|------|
+| 沿 setpoint 方向的位置误差 | `MPCA_PC_SERR` | 0.05 m | setpoint 在前，实际位置被杆卡住 |
+| 沿 setpoint 方向的速度 | `MPCA_PC_SVEL` | 0.10 m/s | 前进速度接近 0 |
+| 俯仰角前倾 | `MPCA_PC_PIT_THR` | -5.0° | 机头下压顶杆 |
+| 连续满足时间 | `MPCA_PC_DUR_THR` | 0.30 s | 过滤姿态瞬时波动 |
 
-原始代码使用 `std::nth_element` 和 4000B 栈上数组，在 V6C（Nuttx，栈限制 2048B）上无法编译。已修复：
-- 替换 `std::nth_element` 为自定义 `simple_nth_element`（选择排序实现）
-- 将中值滤波的临时数组声明为 `static`，避免大栈帧
+检测方向取 **setpoint − current_position 的水平向量**，自动对齐实际前进方向，不再硬编码 NED Y。
 
 ### 6.3 核心文件
 
 | 文件 | 说明 |
 |------|------|
-| `external_force_estimator.cpp/.h` | GMO 算法 + FSM |
-| `external_force_estimator_params.c` | 7 个参数 |
-| `msg/ExternalForceEstimate.msg` | uORB 消息定义 |
-| `msg/ContactState.msg` | uORB 消息定义 |
+| `src/modules/mc_pos_control/MulticopterPositionControl.cpp/.hpp` | 位置/姿态接触检测 + Perching FSM |
+| `src/modules/mc_pos_control/mc_pos_control_params.c` | `MPCA_PC_*` 参数 |
+| `src/modules/external_force_estimator/` | [保留，已弃用于实机] IMU-ICD 尝试 |
+| `msg/ContactState.msg` | uORB 消息定义（保留兼容） |
 
-### 6.4 当前状态
+### 6.4 参数模式
 
-1. **✅ 已启用构建**：
-   - `boards/px4/sitl/default.px4board`：`CONFIG_MODULES_EXTERNAL_FORCE_ESTIMATOR=y`
-   - `boards/px4/fmu-v6c/default.px4board`：`CONFIG_MODULES_EXTERNAL_FORCE_ESTIMATOR=y`
-   - `rc.mc_apps` 包含 `external_force_estimator start`
-   - SITL 和 V6C 编译均通过，`.a` 和 `.px4` 产物均包含 `external_force_estimator_main` 符号
+| `MPCA_PC_EN` | 行为 |
+|--------------|------|
+| 0 | OFF：不检测、不记录 |
+| 1 | DETECT：检测并打印 `CONTACT_DETECTED` 日志，**不进入 Perching FSM** |
+| 2 | FULL：检测到后进入 CONTACT → COMPLIANT → RAMP_DOWN → PERCHED |
 
-2. **⚠️ Python 端未桥接**：
-   - `huaqiccc_perching_test.py` 尝试订阅 `/fmu/external_force_estimate/out`（px4_msgs 话题），但环境中缺少 `px4_msgs` 模块
-   - 导致测试脚本中 `efo_mag=0.00`、`contact_state=-1`
-   - **不影响栖停任务**：perching 脚本通过 **stall detection**（位置停滞检测）作为接触检测的替代方案，已成功完成端到端测试
+实机 airframe 默认 `MPCA_PC_EN=1`，便于先验证检测时机再开启全自动栖停。
 
 ### 6.5 验证状态
 
-- **算法代码**：✅ 完整，逻辑自洽
-- **uORB 消息**：✅ 已定义并加入 `msg/CMakeLists.txt`
-- **编译验证**：✅ SITL + V6C 均编译通过，符号存在于二进制中
-- **SITL 运行验证**：⚠️ 模块已编译进固件，但 Python 脚本因缺少 px4_msgs 无法读取数据；尚未通过独立实验验证 GMO 力估计精度
-- **实机编译**：✅ V6C 固件包含此模块（Nuttx 兼容）
+- **离线日志分析**：✅ 两次手动栖停日志（2026-06-13）中，组合判据零误检、检出率 90~100%
+- **固件编译**：✅ v6c 编译通过，`px4_fmu-v6c_default.px4` 已生成
+- **实机验证**：✅ 2026-06-14 手动栖停测试，检测灵敏度合适，遥测链路正常
 
-> 验证方式：代码审查 + 编译验证（nm 符号检查）+ CSV 日志分析（间接推断）。
+> 验证方式：pandas 日志分析 + 固件编译 + 实机 MAVLink 日志对齐。
 
 ---
 
@@ -341,12 +336,13 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 
 栖停逻辑集成在 `MulticopterPositionControl` 中：
 
-1. **8 秒解锁后延时**：防止起飞阶段误触发
-2. **触发条件**：`contact_state.state == STATE_STABLE && contact_state.should_close && !_perching_active`
-3. **执行动作**：
-   - 记录接触点 X 坐标 `_perching_contact_x`
-   - 仅在 **Offboard** 模式下覆盖位置设定点：`x = _perching_contact_x + 0.25f`
-4. **释放条件**：接触丢失超过 8 秒 → 自动解除栖停状态
+1. **触发条件**：`MPCA_PC_EN=2` 且位置/姿态接触检测器输出 `CONTACT_DETECTED`
+2. **执行动作**：
+   - 记录接触点 `_perching_contact_x`
+   - 进入 Perching FSM：CONTACT → COMPLIANT → RAMP_DOWN → PERCHED
+   - COMPLIANT 阶段软化位置 P 增益、重置积分器、使用弹簧模型维持竖直推力
+   - RAMP_DOWN 阶段指数衰减推力到 0
+3. **安全退出**：高度下降 > 0.3 m 或 COMPLIANT 超时 20 s 未抓稳 → 回到 NONE
 
 ### 7.2 仿真环境
 
@@ -355,7 +351,7 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
   - 圆柱，半径 0.04m，长度 5.0m
   - 摩擦系数 μ=0.9，kp=1e5，kd=10
   - 几乎无弹性（restitution=0.01）
-- **碰撞检测**：GMO 加速度残差（px4 内部）+ 脚本级 stall detection（位置停滞）
+- **碰撞检测**：`mc_pos_control` 内位置/姿态接触检测（位置误差 + 低速 + pitch）
 
 ### 7.3 测试脚本
 
@@ -389,9 +385,9 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 - **逻辑代码**：✅ 完整
 - **仿真环境**：✅ 世界、杆模型、启动文件均存在
 - **端到端测试**：✅ 成功执行（2026-05-23），完整飞行 + 接触 + 收拢 + 降落
-- **GMO 数据链路**：⚠️ `efo_mag=0`, `cstate=-1`（px4_msgs 未安装），但 stall detection 已作为可靠替代
+- **实机接触检测**：✅ 2026-06-14 手动栖停测试，`MPCA_PC_EN=1` 遥测链路正常，检测灵敏度合适
 
-> 验证方式：代码审查 + SITL 端到端飞行测试 + CSV 日志分析。
+> 验证方式：代码审查 + SITL 端到端飞行测试 + 实机日志离线分析 + MAVLink 日志对齐。
 
 ---
 
@@ -545,7 +541,7 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 ### 10.3 验证局限性
 
 - **无自动回归测试**：每次修改需手动运行 `run_simplified_test.sh`（~90 秒）
-- **无 GMO 模块级测试**：无法单独验证力估计精度（px4_msgs 缺失）
+- **GMO/IMU-ICD 已弃用**：实机验证无效，当前使用位置/姿态接触检测
 - **无 MPC 数值验证**：未用 Python/MATLAB 对比求解器输出
 - **uORB 内部状态不可见**：无法直接观察中间变量
 
@@ -555,13 +551,12 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 
 ### 11.1 立即修复（P1 — 数据链路）
 
-1. **安装 px4_msgs 或添加 MAVLink ContactState 流**
-   - 让 `huaqiccc_perching_test.py` 能接收真实的 GMO 数据
-   - 替代/补充当前的 stall detection 方案
+1. **启用 `MPCA_PC_EN=2` 进行自主栖停测试**
+   - 在人工监控下验证 CONTACT → COMPLIANT → GRASP → RAMP_DOWN 全流程
+   - 通过 `/mavros/debug_value/debug_float_array` 实时观察状态
 
-2. **添加栖停使能参数**
-   - 文件：`mc_pos_control_params.c`
-   - 新增 `MPC_PERCH_EN`（bool，默认 false）
+2. **迭代 `MPCA_PC_*` 阈值（如需）**
+   - 若出现误触发或漏检，调整 `MPCA_PC_SERR/SVEL/PIT_THR/DUR_THR`
 
 ### 11.2 短期完善（P2 — 性能优化）
 
@@ -579,14 +574,15 @@ MPCA_MODE = 3 → MPC (梯度投影 QP，N=5，dt=0.05s)
 6. **纯 LQR 状态反馈**
    - 将 Mode 2 从"LQR 增益 PID"改为真正的 `u = -K*x` 状态反馈
 
-7. **GMO 精度标定**
-   - 在 SITL 中施加已知外力，验证 GMO 估计值的准确性
+7. **位置/姿态检测器阈值固化**
+   - 根据 2026-06-14 及后续自主栖停测试结果，将最终阈值写入 airframe
 
 ### 11.4 实机准备
 
-8. **V6C 固件刷写验证**
-9. **室内动捕定位集成**
-10. **M10 GPS 外场测试**
+8. ✅ **V6C 固件刷写验证**（已完成）
+9. ✅ **室内动捕定位集成**（已完成）
+10. **YOLO 视觉 YAW 对齐与实机 OFFBOARD 协调**
+11. **一键栖停任务自动化**
 
 ---
 

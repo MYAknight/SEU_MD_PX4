@@ -92,6 +92,17 @@ class GraspFlightTest:
         self.output_prefix = output_prefix
         self.k_soft = k_soft
         self.preload = preload
+        self.px4_pc_en = int(os.environ.get('MPCA_PC_EN', '2'))
+        self.adm_mass = float(os.environ.get('MPCA_PC_ADM_MASS', '1.5'))
+        self.adm_ka = float(os.environ.get('MPCA_PC_ADM_KA', '0.0'))
+        self.adm_fd = float(os.environ.get('MPCA_PC_ADM_FD', '1.0'))
+        self.adm_lim = float(os.environ.get('MPCA_PC_ADM_LIM', '0.03'))
+        self.adm_kp = float(os.environ.get('MPCA_PC_ADM_KP', '0.0'))
+        self.adm_kv = float(os.environ.get('MPCA_PC_ADM_KV', '0.0'))
+        self.adm_kt = float(os.environ.get('MPCA_PC_ADM_KT', '0.0'))
+        self.adm_kc = float(os.environ.get('MPCA_PC_ADM_KC', '0.0'))
+        self.adm_w1 = float(os.environ.get('MPCA_PC_ADM_W1', '1.0'))
+        self.adm_w2 = float(os.environ.get('MPCA_PC_ADM_W2', '1.0'))
         self.rate_hz = self.RATE_HZ
         self.dt = 1.0 / self.rate_hz
         self.records = []
@@ -113,6 +124,20 @@ class GraspFlightTest:
 
         # Spring model telemetry (extracted from PX4 status text)
         self.compliant_stats = None  # dict with avg_thrust, avg_motor, max_pitch, samples
+
+        # Morph angle feedback from PX4 (for PX4-owned retraction check)
+        self.last_morph_angle = None
+
+        # PX4 contact-detection signal parsed from STATUSTEXT
+        self.px4_contact_detected = False
+
+        # PX4 perching phase from MAVROS debug_float_array (more reliable than STATUSTEXT)
+        self.px4_perching_phase = 0
+
+        # Admittance / compliance telemetry from PX4 debug array
+        self.last_delta_p = 0.0
+        self.last_f_est = 0.0
+        self.last_pitch_deg = 0.0
 
         # 31440 background sender
         self._pending_angle_lock = threading.Lock()
@@ -143,6 +168,12 @@ class GraspFlightTest:
         rospy.Subscriber('/mavros/imu/data', Imu, self._imu_cb)
         rospy.Subscriber('/gazebo/model_states', ModelStates, self._gazebo_state_cb)
         try:
+            from mavros_msgs.msg import DebugValue
+            rospy.Subscriber('/mavros/debug_value/debug_float_array', DebugValue, self._debug_array_cb)
+            print("[OK] Subscribed to MAVROS debug_float_array")
+        except Exception as e:
+            print(f"[WARN] debug_float_array subscribe: {e}")
+        try:
             from mavros_msgs.msg import StatusText
             rospy.Subscriber('/mavros/statustext/recv', StatusText, self._statustext_cb)
             print("[OK] Subscribed to MAVROS statustext")
@@ -150,9 +181,10 @@ class GraspFlightTest:
             print(f"[WARN] statustext subscribe: {e}")
 
         try:
-            from px4_msgs.msg import ExternalForceEstimate, ContactState
+            from px4_msgs.msg import ExternalForceEstimate, ContactState, HuaqicccMorphAngle
             rospy.Subscriber('/fmu/external_force_estimate/out', ExternalForceEstimate, self._efo_cb)
             rospy.Subscriber('/fmu/contact_state/out', ContactState, self._contact_cb)
+            rospy.Subscriber('/fmu/huaqiccc_morph_angle/out', HuaqicccMorphAngle, self._morph_angle_cb)
             print("[OK] Subscribed to px4_msgs GMO topics")
         except Exception as e:
             print(f"[INFO] px4_msgs topics not available ({e})")
@@ -219,8 +251,42 @@ class GraspFlightTest:
         self.last_contact_state = msg.state
         self.last_should_close = msg.should_close
 
+    def _morph_angle_cb(self, msg):
+        self.last_morph_angle = msg.arm_angle
+
+    def _debug_array_cb(self, msg):
+        """Parse PX4 perching debug array published by mc_pos_control.
+
+        Expected layout (matches MulticopterPositionControl.cpp):
+          data[0] = contact_detect_state
+          data[1] = perching_phase
+          data[2] = pc_en
+          data[3] = arm_angle (or 99 if unavailable)
+          data[4] = grasp_secure
+          data[5] = perching_active
+          data[6] = admittance delta_p [m]
+          data[7] = estimated contact force [N]
+          data[8] = preload parameter [m]
+          data[9] = pitch angle [deg]
+        """
+        try:
+            if hasattr(msg, 'data') and len(msg.data) >= 6:
+                self.px4_perching_phase = int(round(msg.data[1]))
+                angle = msg.data[3]
+                if angle < 90.0:
+                    self.last_morph_angle = angle
+                if self.px4_perching_phase >= 2 and not self.px4_contact_detected:
+                    self.px4_contact_detected = True
+                    print(f"[TELEM] PX4 perching phase={self.px4_perching_phase}, arm_angle={angle:.3f}")
+                if len(msg.data) >= 10:
+                    self.last_delta_p = float(msg.data[6])
+                    self.last_f_est = float(msg.data[7])
+                    self.last_pitch_deg = float(msg.data[9])
+        except Exception:
+            pass
+
     def _statustext_cb(self, msg):
-        """Parse PX4 status text messages for perching COMPLIANT stats."""
+        """Parse PX4 status text messages for perching state and morph angle."""
         try:
             text = msg.text if hasattr(msg, 'text') else str(msg)
             if 'COMPLIANT stats' in text:
@@ -237,6 +303,16 @@ class GraspFlightTest:
                     print(f"[TELEM] COMPLIANT stats: thrust={self.compliant_stats['avg_thrust']:.3f} "
                           f"motor={self.compliant_stats['avg_motor']:.3f} "
                           f"pitch={self.compliant_stats['max_pitch_deg']:.1f}°")
+            if 'Perching: contact detected, entering compliance' in text or 'CONTACT_DETECTED' in text:
+                if not self.px4_contact_detected:
+                    self.px4_contact_detected = True
+                    print(f"[TELEM] PX4 contact detected: {text.strip()}")
+            m = re.search(r'morph angle=([+-]?\d+\.?\d*) rad', text)
+            if m:
+                try:
+                    self.last_morph_angle = float(m.group(1))
+                except ValueError:
+                    pass
         except Exception as e:
             pass
 
@@ -270,6 +346,25 @@ class GraspFlightTest:
         if self.preload is not None:
             print(f"[PARAM] Setting MPCA_PC_PRELOAD={self.preload}")
             self._set_param('MPCA_PC_PRELOAD', real=self.preload)
+
+    def _set_pc_en(self):
+        print(f"[PARAM] Setting MPCA_PC_EN={self.px4_pc_en}")
+        self._set_param('MPCA_PC_EN', integer=self.px4_pc_en)
+
+    def _set_adm_params(self):
+        print("[PARAM] Setting admittance/compliance parameters...")
+        print(f"  MPCA_PC_ADM_MASS={self.adm_mass}, KA={self.adm_ka}, FD={self.adm_fd}, LIM={self.adm_lim}")
+        print(f"  MPCA_PC_ADM_KP={self.adm_kp}, KV={self.adm_kv}, KT={self.adm_kt}, KC={self.adm_kc}, W1={self.adm_w1}, W2={self.adm_w2}")
+        self._set_param('MPCA_PC_ADM_MASS', real=self.adm_mass)
+        self._set_param('MPCA_PC_ADM_KA', real=self.adm_ka)
+        self._set_param('MPCA_PC_ADM_FD', real=self.adm_fd)
+        self._set_param('MPCA_PC_ADM_LIM', real=self.adm_lim)
+        self._set_param('MPCA_PC_ADM_KP', real=self.adm_kp)
+        self._set_param('MPCA_PC_ADM_KV', real=self.adm_kv)
+        self._set_param('MPCA_PC_ADM_KT', real=self.adm_kt)
+        self._set_param('MPCA_PC_ADM_KC', real=self.adm_kc)
+        self._set_param('MPCA_PC_ADM_W1', real=self.adm_w1)
+        self._set_param('MPCA_PC_ADM_W2', real=self.adm_w2)
 
     # ---------- 31440 background sender ----------
 
@@ -399,6 +494,10 @@ class GraspFlightTest:
             'efo_mag': round(self.last_efo_mag, 4),
             'contact_state': self.last_contact_state,
             'should_close': 1 if self.last_should_close else 0,
+            'delta_p': round(self.last_delta_p, 5),
+            'f_est': round(self.last_f_est, 3),
+            'pitch_deg': round(self.last_pitch_deg, 2),
+            'px4_phase': self.px4_perching_phase,
         })
 
     def _save_csv(self, suffix=''):
@@ -495,18 +594,26 @@ class GraspFlightTest:
         print(f"[MORPH] Reached {target_angle:.2f} rad")
 
     def _phase_push_and_detect(self, x_start, y, z, x_target, timeout, speed):
-        """Very slow push into pole with contact detection."""
-        print(f"[PUSH] From x={x_start:.2f} toward x={x_target:.2f} at {speed}m/s")
+        """Very slow push into pole with contact detection.
+
+        In PX4-owned mode (MPCA_PC_EN >= 2) the script does NOT decide when
+        contact occurs; it keeps pushing slowly and waits for PX4 to announce
+        contact via STATUSTEXT.  The legacy stall/EFO detection is only used as
+        a fallback when PX4 perching control is disabled.
+        """
+        px4_owned = self.px4_pc_en >= 2
+        print(f"[PUSH] From x={x_start:.2f} toward x={x_target:.2f} at {speed}m/s "
+              f"(PX4_owned={px4_owned})")
         dt = 1.0 / self.rate_hz
         start = time.time()
         contact_detected = False
         contact_time = None
         push_duration_est = abs(x_target - x_start) / max(speed, 0.001)
 
-        # Thresholds for contact detection
-        EFO_THRESHOLD = 1.0       # Lowered for sensitivity
-        STALL_DIST = 0.15         # Must be stuck within 15cm of pole surface
-        STALL_S = 0.70            # Setpoint must be past surface (lower = earlier check)
+        # Thresholds for contact detection (legacy mode only)
+        EFO_THRESHOLD = 1.0
+        STALL_DIST = 0.15
+        STALL_S = 0.70
 
         while not rospy.is_shutdown():
             t = time.time() - start
@@ -522,26 +629,15 @@ class GraspFlightTest:
             self._send_setpoint(x, y, z, 0.0, vx, 0.0, 0.0)
 
             act_x = self.current_pose.position.x if self.current_pose else x_start
-            act_z = self.current_pose.position.z if self.current_pose else z
             efo = self.last_efo_mag
             cstate = self.last_contact_state
 
-            # Stall detection: stuck near pole while setpoint is past it
-            stalled = False
-            if s > STALL_S:
-                # Expected x when touching pole surface: POLE_X - POLE_RADIUS - arm_front_offset
-                # arm_front_offset ~ 0.46m (from model geometry), but we approximate
-                pole_surface_x = self.POLE_X - self.POLE_RADIUS
-                if abs(act_x - pole_surface_x) < STALL_DIST:
-                    stalled = True
-                    print(f"  [STALL] act_x={act_x:.2f}, pole_surface={pole_surface_x:.2f}, sp_x={x:.2f}")
-
-            # Contact detection: EFO spike, contact FSM, or stall
-            if efo > EFO_THRESHOLD or cstate > 0 or stalled:
-                if not contact_detected:
+            if px4_owned:
+                # Wait for PX4 to detect contact and take over the setpoint.
+                if self.px4_contact_detected:
                     contact_detected = True
                     contact_time = t
-                    print(f"[CONTACT] Detected at t={t:.2f}s | efo={efo:.2f}N | cstate={cstate} | stalled={stalled}")
+                    print(f"[CONTACT] PX4 detected contact at t={t:.2f}s")
                     # Keep sending setpoints briefly to maintain OFFBOARD
                     for _ in range(20):
                         if rospy.is_shutdown():
@@ -550,6 +646,27 @@ class GraspFlightTest:
                         self._record('push', t, x, y, z)
                         time.sleep(dt)
                     break
+            else:
+                # Legacy script-side contact detection.
+                stalled = False
+                if s > STALL_S:
+                    pole_surface_x = self.POLE_X - self.POLE_RADIUS
+                    if abs(act_x - pole_surface_x) < STALL_DIST:
+                        stalled = True
+                        print(f"  [STALL] act_x={act_x:.2f}, pole_surface={pole_surface_x:.2f}, sp_x={x:.2f}")
+
+                if efo > EFO_THRESHOLD or cstate > 0 or stalled:
+                    if not contact_detected:
+                        contact_detected = True
+                        contact_time = t
+                        print(f"[CONTACT] Detected at t={t:.2f}s | efo={efo:.2f}N | cstate={cstate} | stalled={stalled}")
+                        for _ in range(20):
+                            if rospy.is_shutdown():
+                                break
+                            self._send_setpoint(x, y, z)
+                            self._record('push', t, x, y, z)
+                            time.sleep(dt)
+                        break
 
             self._record('push', t, x, y, z)
             time.sleep(dt)
@@ -569,6 +686,23 @@ class GraspFlightTest:
             self._record('hold', t, x, y, z)
             time.sleep(dt)
         return not rospy.is_shutdown()
+
+    def _wait_arm_retracted(self, timeout=15.0, threshold=-0.05):
+        """Wait for PX4-driven arm retraction to finish (angle >= threshold)."""
+        print(f"[WAIT] Waiting for arm retraction (angle >= {threshold:.3f} rad, timeout {timeout:.1f}s)")
+        dt = 1.0 / self.rate_hz
+        start = time.time()
+        while not rospy.is_shutdown():
+            t = time.time() - start
+            if t > timeout:
+                print("[WARN] Arm retraction wait timeout")
+                return False
+            angle = self.last_morph_angle
+            if angle is not None and angle >= threshold:
+                print(f"[OK] Arm retracted (angle={angle:.3f} rad)")
+                return True
+            time.sleep(dt)
+        return False
 
     def _force_disarm(self):
         """Send force disarm command (stops motors even when not landed)."""
@@ -665,6 +799,8 @@ class GraspFlightTest:
     def run(self):
         self._set_k_soft()
         self._set_preload()
+        self._set_pc_en()
+        self._set_adm_params()
         rate = rospy.Rate(self.rate_hz)
 
         # Pre-send hover setpoints
@@ -731,18 +867,17 @@ class GraspFlightTest:
 
         print(f"[RESULT] Contact detected at t={contact_time:.2f}s")
 
-        # Phase 5: Immediately contract arms upon contact to grip the pole
-        # while MPC perching logic maintains forward pressure
-        perching_x = self.POLE_X + 0.25  # Match MPC override in MulticopterPositionControl.cpp
-        print(f"[PERCHING] Aligning with MPC perching target x={perching_x:.2f}")
-        print("[GRASP] Contracting arms to grip pole immediately...")
+        # Phase 5: contact handling.
+        # PX4 is now overriding the 3D setpoint to the recorded contact point + preload.
+        # The script keeps the offboard link alive and (in SITL) drives arm retraction
+        # because the morph-control module is disabled in simulation.
+        perching_x = self.POLE_X + 0.25
+        print(f"[PERCHING] PX4 owns setpoint; contracting arms near x={perching_x:.2f}")
         self._morph_arm(self.GRASP_ANGLE, self.MORPH_DURATION_CONTRACT,
                         hold_x=perching_x, hold_y=0.0, hold_z=self.HOVER_Z)
+        hold_after_grasp = 6.0
 
-        # Phase 6: Hold long enough for FSM to confirm grasp secure and complete ramp-down
-        # With simulation fix mode, Gazebo plugin will auto-freeze when conditions met.
-        # We also send manual fix as fallback.
-        hold_after_grasp = 10.0
+        # Phase 6: Hold long enough for the grasp to settle.
         print(f"[HOLD] Holding position for {hold_after_grasp}s...")
         self._phase_hold_position(perching_x, self.APPROACH_Y, self.HOVER_Z, hold_after_grasp)
 
@@ -790,7 +925,7 @@ def main():
     parser = argparse.ArgumentParser(description='huaqiccc Perching Grasp Test (16cm pole)')
     parser.add_argument('--output', default='grasp_test', help='Output CSV prefix')
     parser.add_argument('--k-soft', type=float, default=None, help='MPCA_PC_K_SOFT value (impedance stiffness ratio)')
-    parser.add_argument('--preload', type=float, default=0.02, help='MPCA_PC_PRELOAD value (spring preload offset in m)')
+    parser.add_argument('--preload', type=float, default=0.03, help='MPCA_PC_PRELOAD value (spring preload offset in m)')
     args = parser.parse_args()
 
     print("\n" + "=" * 60)

@@ -13,7 +13,7 @@ for mode in 0 3; do
         echo "========================================"
         echo "  Running test: MPCA_MODE=$mode, MPCA_FF_EN=$ff"
         echo "========================================"
-        bash /home/a/huaqiccc_test_suite/runners/01_flatness_circle.sh "$mode" "$ff" > "/tmp/run_test_m${mode}_ff${ff}.log" 2>&1
+        bash /home/a/Projects/PX4/SEU_MD_PX4/Tools/huaqiccc_test_suite/runners/01_flatness_circle.sh "$mode" "$ff" > "/tmp/run_test_m${mode}_ff${ff}.log" 2>&1
         # Wait for test completion
         while pgrep -f "huaqiccc_flatness_test" > /dev/null; do
             sleep 2

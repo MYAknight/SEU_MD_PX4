@@ -12,7 +12,8 @@
     <!-- vehicle model and world -->
     <arg name="est" default="ekf2"/>
     <arg name="vehicle" default="huaqiccc"/>
-    <arg name="world" default="$(find px4)/Tools/huaqiccc_simulation/worlds/perching_pole.world"/>
+    <!-- Default to the 16cm pole; the 8cm pole is too thin for the gripper to grasp reliably. -->
+    <arg name="world" default="$(find px4)/Tools/huaqiccc_simulation/worlds/perching_pole_16cm.world"/>
     <arg name="sdf" default="$(find mavlink_sitl_gazebo)/models/$(arg vehicle)/$(arg vehicle).sdf"/>
 
     <!-- gazebo configs -->

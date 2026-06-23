@@ -124,12 +124,19 @@ private:
 	float _mpc_H[MPC_N][MPC_N];
 	float _mpc_M[MPC_N][2];
 	float _mpc_g_const[MPC_N];
-	float _mpc_alpha{20.0f};  // Batch 8: gradient step size (2/lambda_max ≈ 30.7)
+	// SITL uses more aggressive MPC defaults; real hardware keeps original conservative values.
+#ifdef __PX4_POSIX
+	float _mpc_alpha{5.0f};     // gradient step size matched to SITL-tuned H (max ~57)
+	float _mpc_u_min_xy{-5.0f}; // SITL: less conservative XY acceleration bounds
+	float _mpc_u_max_xy{5.0f};
+#else
+	float _mpc_alpha{20.0f};    // original HW step size (2/lambda_max ≈ 30.7)
+	float _mpc_u_min_xy{-1.5f}; // original HW conservative bounds
+	float _mpc_u_max_xy{1.5f};
+#endif
 	float _mpc_r_delta{0.005f};  // Batch 6: delta-u penalty weight for control smoothing
 	float _mpc_u_prev[3]{0.0f, 0.0f, 0.0f};  // Batch 6: previous control for delta-u warm-start
 
-	float _mpc_u_min_xy{-1.5f};
-	float _mpc_u_max_xy{1.5f};
 	float _mpc_u_min_z{-8.0f};
 	float _mpc_u_max_z{8.0f};
 

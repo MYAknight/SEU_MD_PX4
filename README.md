@@ -6,6 +6,20 @@
 
 [![Discord Shield](https://discordapp.com/api/guilds/1022170275984457759/widget.png?style=shield)](https://discord.gg/dronecode)
 
+## Project-Specific Notes for SEU MD Perching
+
+This fork is tailored for the SEU MD morphing-drone **perching on a 16 cm pole** project. The core perching logic lives in `src/modules/mc_pos_control/MulticopterPositionControl.*` and is exercised by the scripts in `Tools/huaqiccc_test_suite/`.
+
+**Quick entry points:**
+- SITL perching test: `Tools/huaqiccc_test_suite/runners/param_sweep.sh`
+- Force-estimation validation: `Tools/huaqiccc_test_suite/tests/run_force_test.sh`
+- Key parameters: `MPCA_PC_EN`, `MPCA_PC_PRELOAD`, `MPCA_PC_ADM_KA/KP/KC`, etc.
+- Debug telemetry: `/mavros/debug_value/debug_float_array` (`data[6]=delta_p`, `data[7]=f_est`, `data[9]=pitch_deg`, `data[10..13]=force-estimation intermediates`).
+
+See `Tools/huaqiccc_test_suite/README.md` for the perching workflow and the three optional post-contact adjustment schemes (A/B/C).
+
+---
+
 This repository holds the [PX4](http://px4.io) flight control solution for drones, with the main applications located in the [src/modules](https://github.com/PX4/PX4-Autopilot/tree/main/src/modules) directory. It also contains the PX4 Drone Middleware Platform, which provides drivers and middleware to run drones.
 
 PX4 is highly portable, OS-independent and supports Linux, NuttX and MacOS out of the box.

@@ -6,19 +6,35 @@
 
 # Huaqiccc morphing drone position control defaults
 param set-default MPCA_MODE 0
-param set-default MPC_XY_P 1.5
-param set-default MPC_XY_VEL_P_ACC 2.2
-param set-default MPC_XY_VEL_I_ACC 0.4
+param set-default MPC_XY_P 4.0
+param set-default MPC_XY_VEL_P_ACC 5.0
+param set-default MPC_XY_VEL_I_ACC 1.0
+param set-default MPC_XY_VEL_D_ACC 0.4
 param set-default MPCA_MPC_ALPHA 20.0
 param set-default MPCA_MPC_R_DELTA 0.005
 param set-default MPCA_FF_EN 1
 param set-default MPCA_FF_BLEND 0.3
-param set-default MPCA_FF_MASS 1.5
+param set-default MPCA_FF_MASS 1.26
 
-# External Force Observer (IMU-ICD) defaults
+# External Force Observer (IMU-ICD) defaults.
+# NOTE: IMU-ICD is deprecated on the real huaqiccc vehicle. It is kept
+# enabled in SITL only for reference; the active detector is in mc_pos_control.
 param set-default EFO_ENABLE 1
 
-# Perching contact detection defaults (disabled by default)
+# Perching/contact-detection defaults (disabled by default)
+# 0=OFF, 1=DETECT (log only), 2=FULL (trigger perching FSM)
 param set-default MPCA_PC_EN 0
 param set-default MPCA_PC_TRIG 0
-param set-default MPCA_PC_GATE 4.90
+# MPCA_PC_GATE is deprecated (legacy NED-Y stall detector gate).
+
+# Perching admittance/compliance/adaptive position refinement defaults
+param set-default MPCA_PC_ADM_MASS 1.5
+param set-default MPCA_PC_ADM_KA 0.0
+param set-default MPCA_PC_ADM_FD 1.0
+param set-default MPCA_PC_ADM_LIM 0.03
+param set-default MPCA_PC_ADM_KP 0.0
+param set-default MPCA_PC_ADM_KV 0.0
+param set-default MPCA_PC_ADM_KT 0.0
+param set-default MPCA_PC_ADM_KC 0.0
+param set-default MPCA_PC_ADM_W1 1.0
+param set-default MPCA_PC_ADM_W2 1.0

@@ -459,10 +459,17 @@ MavlinkReceiver::handle_message_command_long(mavlink_message_t *msg)
 		acknowledge(msg->sysid, msg->compid, cmd_mavlink.command,
 			    vehicle_command_ack_s::VEHICLE_CMD_RESULT_ACCEPTED);
 
-		// In real hardware, also publish vehicle_command so huaqiccc_morph_control can receive it
+		// In real hardware, publish dedicated morph command topic to avoid vehicle_command multi-instance issues
 		#ifndef CONFIG_ARCH_SIM
-			orb_advert_t vcmd_pub = orb_advertise(ORB_ID(vehicle_command), &vcmd);
-			orb_publish(ORB_ID(vehicle_command), vcmd_pub, &vcmd);
+			huaqiccc_morph_cmd_s morph_cmd{};
+			morph_cmd.timestamp = hrt_absolute_time();
+			morph_cmd.arm_angle = arm_angle;
+			static orb_advert_t _huaqiccc_morph_cmd_pub = nullptr;
+			if (_huaqiccc_morph_cmd_pub != nullptr) {
+				orb_publish(ORB_ID(huaqiccc_morph_cmd), _huaqiccc_morph_cmd_pub, &morph_cmd);
+			} else {
+				_huaqiccc_morph_cmd_pub = orb_advertise(ORB_ID(huaqiccc_morph_cmd), &morph_cmd);
+			}
 		#endif
 
 		return;
